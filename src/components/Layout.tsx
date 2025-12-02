@@ -1,16 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingCart, DollarSign, Package, Users, CreditCard, LogOut } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, DollarSign, Package, Users, CreditCard, LogOut, Menu, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Layout: React.FC = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { signOut } = useAuth();
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     const handleSignOut = async () => {
         await signOut();
         navigate('/login');
+    };
+
+    const closeMobileMenu = () => {
+        setIsMobileMenuOpen(false);
     };
 
     const navItems = [
@@ -24,8 +29,28 @@ const Layout: React.FC = () => {
 
     return (
         <div className="flex h-screen bg-gray-100">
+            {/* Mobile Menu Button */}
+            <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-pink-600 text-white rounded-lg shadow-lg"
+            >
+                {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+
+            {/* Overlay for mobile */}
+            {isMobileMenuOpen && (
+                <div
+                    className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
+                    onClick={closeMobileMenu}
+                />
+            )}
+
             {/* Sidebar */}
-            <aside className="w-64 bg-white shadow-md">
+            <aside className={`
+                fixed lg:static inset-y-0 left-0 z-40
+                w-64 bg-white shadow-md transform transition-transform duration-300 ease-in-out
+                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+            `}>
                 <div className="p-6">
                     <h1 className="text-2xl font-bold text-pink-600">Rubia Joias</h1>
                 </div>
@@ -37,6 +62,7 @@ const Layout: React.FC = () => {
                             <Link
                                 key={item.path}
                                 to={item.path}
+                                onClick={closeMobileMenu}
                                 className={`flex items-center px-6 py-3 transition-colors ${isActive
                                     ? 'bg-pink-600 text-white'
                                     : 'text-gray-700 hover:bg-pink-50 hover:text-pink-600'
@@ -61,7 +87,7 @@ const Layout: React.FC = () => {
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-y-auto p-8">
+            <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pt-16 lg:pt-8">
                 <Outlet />
             </main>
         </div>
