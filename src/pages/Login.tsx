@@ -5,7 +5,7 @@ import { Eye, EyeOff, Mail, Lock, User, ArrowRight } from 'lucide-react';
 
 const Login: React.FC = () => {
     const navigate = useNavigate();
-    const { signIn, signUp, resetPassword, loginAsDemo } = useAuth();
+    const { signIn, signUp, resetPassword } = useAuth();
 
     const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
     const [email, setEmail] = useState('');
