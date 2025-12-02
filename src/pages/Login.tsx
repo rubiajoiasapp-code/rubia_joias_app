@@ -85,8 +85,8 @@ const Login: React.FC = () => {
                     {/* Message */}
                     {message && (
                         <div className={`mb-4 p-3 rounded-lg text-sm ${message.includes('✅')
-                                ? 'bg-green-500/10 border border-green-500/30 text-green-400'
-                                : 'bg-red-500/10 border border-red-500/30 text-red-400'
+                            ? 'bg-green-500/10 border border-green-500/30 text-green-400'
+                            : 'bg-red-500/10 border border-red-500/30 text-red-400'
                             }`}>
                             {message}
                         </div>
@@ -188,19 +188,6 @@ const Login: React.FC = () => {
                             )}
                         </button>
 
-                        {mode === 'login' && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    loginAsDemo();
-                                    navigate('/');
-                                }}
-                                className="w-full mt-3 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium py-3 px-4 rounded-lg transition-all duration-300 flex items-center justify-center border border-gray-700"
-                            >
-                                <User className="w-4 h-4 mr-2" />
-                                Entrar como Visitante (Demo)
-                            </button>
-                        )}
                     </form>
 
                     {/* Footer Links */}
