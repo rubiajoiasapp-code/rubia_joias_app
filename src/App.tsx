@@ -9,6 +9,7 @@ import Financial from './pages/Financial';
 import Inventory from './pages/Inventory';
 import Clients from './pages/Clients';
 import Credit from './pages/Credit';
+import Settings from './pages/Settings';
 
 // TEMPORÁRIO: Desabilitar autenticação para desenvolvimento
 const DISABLE_AUTH = false;
@@ -38,6 +39,7 @@ function App() {
             <Route path="financeiro" element={<Financial />} />
             <Route path="crediario" element={<Credit />} />
             <Route path="estoque" element={<Inventory />} />
+            <Route path="configuracoes" element={<Settings />} />
           </Route>
 
           {/* Redirect any unknown routes */}
