@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download } from 'lucide-react';
+import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import SaleReceipt from '../components/SaleReceipt';
 
@@ -211,12 +211,91 @@ const Credit: React.FC = () => {
         }
     };
 
+    const handleShareWhatsApp = async (sale: SaleWithInstallments) => {
+        try {
+            const receiptElement = document.getElementById(`receipt-${sale.id}`);
+
+            if (!receiptElement) {
+                alert('❌ Erro ao localizar o recibo. Tente novamente.');
+                return;
+            }
+
+            // Converter para canvas
+            const canvas = await html2canvas(receiptElement, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: false,
+                useCORS: true,
+                allowTaint: true
+            });
+
+            // Converter para Blob
+            const blob = await new Promise<Blob>((resolve) => {
+                canvas.toBlob((blob) => resolve(blob!), 'image/png');
+            });
+
+            const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+            const fileName = `resumo_venda_${clientName}.png`;
+
+            // Tentar Web Share API (funciona melhor no mobile)
+            if (navigator.share && navigator.canShare) {
+                const file = new File([blob], fileName, { type: 'image/png' });
+
+                const canShareFile = navigator.canShare({ files: [file] });
+
+                if (canShareFile) {
+                    await navigator.share({
+                        files: [file],
+                        title: 'Resumo da Venda - Rubia Joias',
+                        text: `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}.`
+                    });
+                    return;
+                }
+            }
+
+            // Fallback: Baixar imagem + abrir WhatsApp
+            // 1. Baixar a imagem primeiro
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+
+            // 2. Abrir WhatsApp com mensagem (se tiver telefone)
+            // Buscar telefone do cliente
+            const { data: clientData } = await supabase
+                .from('clientes')
+                .select('telefone')
+                .eq('id', sale.cliente_id)
+                .single();
+
+            if (clientData?.telefone) {
+                const phone = clientData.telefone.replace(/\D/g, '');
+                const message = encodeURIComponent(
+                    `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}. A imagem foi baixada automaticamente, por favor anexe na conversa.`
+                );
+
+                // Abrir WhatsApp em nova aba
+                setTimeout(() => {
+                    window.open(`https://wa.me/55${phone}?text=${message}`, '_blank');
+                }, 500); // Pequeno delay para garantir que o download iniciou
+            } else {
+                alert('✅ Resumo baixado! Como o cliente não possui telefone cadastrado, compartilhe manualmente via WhatsApp.');
+            }
+
+        } catch (error: any) {
+            console.error('Erro ao compartilhar:', error);
+            alert('❌ Erro ao compartilhar. Tente baixar o resumo manualmente.');
+        }
+    };
     const isOverdue = (installment: Installment) => {
         if (installment.pago) return false;
         const today = new Date();
         const dueDate = new Date(installment.data_vencimento);
         return dueDate < today;
     };
+
 
     const formatDate = (dateString: string) => {
         const date = new Date(dateString);
@@ -353,6 +432,16 @@ const Credit: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleShareWhatsApp(sale);
+                                            }}
+                                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                            title="Compartilhar no WhatsApp"
+                                        >
+                                            <MessageCircle className="w-5 h-5" />
+                                        </button>
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
