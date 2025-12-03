@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2 } from 'lucide-react';
+import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import SaleReceipt from '../components/SaleReceipt';
 
 interface Sale {
     id: string;
@@ -173,6 +175,42 @@ const Credit: React.FC = () => {
         }
     };
 
+    const handleDownloadReceipt = async (sale: SaleWithInstallments) => {
+        try {
+            const receiptElement = document.getElementById(`receipt-${sale.id}`);
+
+            if (!receiptElement) {
+                alert('❌ Erro ao localizar o recibo. Tente novamente.');
+                return;
+            }
+
+            // Converter para canvas com alta qualidade
+            const canvas = await html2canvas(receiptElement, {
+                backgroundColor: '#ffffff',
+                scale: 2, // Alta qualidade
+                logging: false,
+                useCORS: true,
+                allowTaint: true
+            });
+
+            // Converter para PNG
+            const image = canvas.toDataURL('image/png');
+
+            // Criar link de download
+            const link = document.createElement('a');
+            const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+            const date = new Date(sale.data_venda).toLocaleDateString('pt-BR').replace(/\//g, '-');
+            link.download = `resumo_venda_${clientName}_${date}.png`;
+            link.href = image;
+            link.click();
+
+            alert('✅ Resumo baixado com sucesso!');
+        } catch (error: any) {
+            console.error('Erro ao gerar resumo:', error);
+            alert('❌ Erro ao gerar resumo. Tente novamente.');
+        }
+    };
+
     const isOverdue = (installment: Installment) => {
         if (installment.pago) return false;
         const today = new Date();
@@ -318,6 +356,16 @@ const Credit: React.FC = () => {
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
+                                                handleDownloadReceipt(sale);
+                                            }}
+                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            title="Baixar resumo em PNG"
+                                        >
+                                            <Download className="w-5 h-5" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
                                                 handleDeleteSale(sale.id, sale.cliente.nome);
                                             }}
                                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -454,6 +502,11 @@ const Credit: React.FC = () => {
                     ))}
                 </div>
             )}
+
+            {/* Recibos invisíveis para exportação */}
+            {sales.map((sale) => (
+                <SaleReceipt key={`receipt-${sale.id}`} sale={sale} />
+            ))}
         </div>
     );
 };
