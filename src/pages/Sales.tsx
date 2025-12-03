@@ -200,12 +200,14 @@ const Sales: React.FC = () => {
 
             if (itemsError) throw itemsError;
 
-            // 3. Se for FIADO (parcelado), criar as parcelas
-            if (paymentMethod === 'FIADO' && installments > 1) {
-                const valorParcela = total / installments;
-                const dataVenda = new Date();
+            // 3. SEMPRE criar parcelas para rastreabilidade no crediário
+            const dataVenda = new Date();
 
+            if (paymentMethod === 'FIADO' && installments > 1) {
+                // Venda parcelada - múltiplas parcelas não pagas
+                const valorParcela = total / installments;
                 const parcelas = [];
+
                 for (let i = 1; i <= installments; i++) {
                     const dataVencimento = new Date(dataVenda);
                     dataVencimento.setMonth(dataVencimento.getMonth() + i);
@@ -226,6 +228,29 @@ const Sales: React.FC = () => {
                 if (parcelasError) {
                     console.error('Erro ao criar parcelas:', parcelasError);
                     alert('⚠️ Venda criada, mas houve erro ao gerar parcelas. Verifique o crediário.');
+                }
+            } else {
+                // Venda à vista - 1 parcela já paga para histórico e rastreabilidade
+                const metodoPagamento = paymentMethod === 'CARTAO_CREDITO' ? 'Crédito' :
+                    paymentMethod === 'CARTAO_DEBITO' ? 'Débito' :
+                        paymentMethod === 'DINHEIRO' ? 'Dinheiro' :
+                            paymentMethod;
+
+                const { error: parcelasError } = await supabase
+                    .from('parcelas_venda')
+                    .insert([{
+                        venda_id: saleData.id,
+                        numero_parcela: 1,
+                        valor_parcela: total,
+                        data_vencimento: dataVenda.toISOString().split('T')[0],
+                        data_pagamento: dataVenda.toISOString(),
+                        pago: true,
+                        observacoes: `Pagamento à vista - ${metodoPagamento}`
+                    }]);
+
+                if (parcelasError) {
+                    console.error('Erro ao criar registro no crediário:', parcelasError);
+                    alert('⚠️ Venda criada, mas houve erro ao registrar no crediário.');
                 }
             }
 
