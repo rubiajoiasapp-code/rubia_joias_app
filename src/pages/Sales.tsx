@@ -204,7 +204,7 @@ const Sales: React.FC = () => {
             // 3. SEMPRE criar parcelas para rastreabilidade no crediário
             const dataVenda = new Date();
 
-            if (paymentMethod === 'FIADO' && installments > 1) {
+            if (paymentMethod === 'FIADO') {
                 // Venda parcelada - múltiplas parcelas não pagas
                 const parcelas = [];
 
@@ -457,126 +457,126 @@ const Sales: React.FC = () => {
                     </div>
 
                     {/* Forma de Pagamento */}
-                    <div className="mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Pagamento</label>
-                        <div className="grid grid-cols-2 gap-2">
-                            {['PIX', 'CARTAO_CREDITO', 'CARTAO_DEBITO', 'DINHEIRO', 'FIADO'].map((method) => (
-                                <button
-                                    key={method}
-                                    onClick={() => {
-                                        setPaymentMethod(method);
-                                        if (method !== 'FIADO') {
-                                            setInstallments(1);
-                                        }
-                                    }}
-                                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${paymentMethod === method
-                                        ? 'bg-pink-600 text-white'
-                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                        }`}
-                                >
-                                    {method === 'CARTAO_CREDITO' ? 'Crédito' :
-                                        method === 'CARTAO_DEBITO' ? 'Débito' :
-                                            method === 'DINHEIRO' ? 'Dinheiro' :
-                                                method === 'FIADO' ? 'Parcelado' : method}
-                                </button>
-                            ))}
-                        </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        {['PIX', 'CARTAO_CREDITO', 'CARTAO_DEBITO', 'DINHEIRO', 'FIADO'].map((method) => (
+                            <button
+                                key={method}
+                                onClick={() => {
+                                    setPaymentMethod(method);
+                                    if (method !== 'FIADO') {
+                                        setInstallments(1);
+                                        setDownPayment(0);
+                                    } else {
+                                        setInstallments(2);
+                                    }
+                                }}
+                                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${paymentMethod === method
+                                    ? 'bg-pink-600 text-white'
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                            >
+                                {method === 'CARTAO_CREDITO' ? 'Crédito' :
+                                    method === 'CARTAO_DEBITO' ? 'Débito' :
+                                        method === 'DINHEIRO' ? 'Dinheiro' :
+                                            method === 'FIADO' ? 'Parcelado' : method}
+                            </button>
+                        ))}
+                    </div>
 
-                        {/* Seleção de Parcelas e Entrada */}
-                        {paymentMethod === 'FIADO' && (
-                            <div className="mt-4 space-y-4">
-                                {/* Campo de Entrada */}
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Entrada (Opcional)</label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">R$</span>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max={calculateTotal()}
-                                            step="0.01"
-                                            value={downPayment}
-                                            onChange={(e) => {
-                                                const value = parseFloat(e.target.value) || 0;
-                                                if (value <= calculateTotal()) {
-                                                    setDownPayment(value);
-                                                }
-                                            }}
-                                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                            placeholder="0.00"
-                                        />
-                                    </div>
-                                    {/* Botões Rápidos */}
-                                    <div className="grid grid-cols-4 gap-2 mt-2">
-                                        {[10, 20, 30, 50].map((percent) => (
-                                            <button
-                                                key={percent}
-                                                type="button"
-                                                onClick={() => setDownPayment((calculateTotal() * percent) / 100)}
-                                                className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
-                                            >
-                                                {percent}%
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {/* Info do Saldo */}
-                                    {downPayment > 0 && (
-                                        <div className="mt-2 text-xs space-y-1">
-                                            <div className="flex justify-between text-gray-600">
-                                                <span>Entrada:</span>
-                                                <span className="font-semibold text-green-600">R$ {downPayment.toFixed(2)}</span>
-                                            </div>
-                                            <div className="flex justify-between text-gray-600">
-                                                <span>Saldo a parcelar:</span>
-                                                <span className="font-semibold text-pink-600">R$ {(calculateTotal() - downPayment).toFixed(2)}</span>
-                                            </div>
+                    {/* Seleção de Parcelas e Entrada */}
+                    {paymentMethod === 'FIADO' && (
+                        <div className="mt-4 space-y-4">
+                            {/* Campo de Entrada */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Entrada (Opcional)</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">R$</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max={calculateTotal()}
+                                        step="0.01"
+                                        value={downPayment}
+                                        onChange={(e) => {
+                                            const value = parseFloat(e.target.value) || 0;
+                                            if (value <= calculateTotal()) {
+                                                setDownPayment(value);
+                                            }
+                                        }}
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                {/* Botões Rápidos */}
+                                <div className="grid grid-cols-4 gap-2 mt-2">
+                                    {[10, 20, 30, 50].map((percent) => (
+                                        <button
+                                            key={percent}
+                                            type="button"
+                                            onClick={() => setDownPayment((calculateTotal() * percent) / 100)}
+                                            className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                                        >
+                                            {percent}%
+                                        </button>
+                                    ))}
+                                </div>
+                                {/* Info do Saldo */}
+                                {downPayment > 0 && (
+                                    <div className="mt-2 text-xs space-y-1">
+                                        <div className="flex justify-between text-gray-600">
+                                            <span>Entrada:</span>
+                                            <span className="font-semibold text-green-600">R$ {downPayment.toFixed(2)}</span>
                                         </div>
-                                    )}
-                                    {downPayment > calculateTotal() && (
-                                        <p className="text-xs text-red-600 mt-1">⚠️ Entrada não pode ser maior que o total</p>
-                                    )}
-                                </div>
-
-                                {/* Seleção de Parcelas */}
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Parcelas do Saldo</label>
-                                    <select
-                                        value={installments}
-                                        onChange={(e) => setInstallments(parseInt(e.target.value))}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                    >
-                                        {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((num) => {
-                                            const saldoParcelar = calculateTotal() - downPayment;
-                                            const valorParcela = saldoParcelar / num;
-                                            return (
-                                                <option key={num} value={num}>
-                                                    {num}x de R$ {valorParcela.toFixed(2)}
-                                                </option>
-                                            );
-                                        })}
-                                    </select>
-                                </div>
+                                        <div className="flex justify-between text-gray-600">
+                                            <span>Saldo a parcelar:</span>
+                                            <span className="font-semibold text-pink-600">R$ {(calculateTotal() - downPayment).toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                )}
+                                {downPayment > calculateTotal() && (
+                                    <p className="text-xs text-red-600 mt-1">⚠️ Entrada não pode ser maior que o total</p>
+                                )}
                             </div>
-                        )}
-                    </div>
 
-                    {/* Total e Finalizar */}
-                    <div className="border-t border-gray-200 pt-4">
-                        <div className="flex justify-between items-center mb-4">
-                            <span className="text-lg font-bold text-gray-800">Total:</span>
-                            <span className="text-2xl font-bold text-pink-600">
-                                R$ {calculateTotal().toFixed(2)}
-                            </span>
+                            {/* Seleção de Parcelas */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Parcelas do Saldo</label>
+                                <select
+                                    value={installments}
+                                    onChange={(e) => setInstallments(parseInt(e.target.value))}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                >
+                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((num) => {
+                                        const saldoParcelar = calculateTotal() - downPayment;
+                                        const valorParcela = saldoParcelar / num;
+                                        return (
+                                            <option key={num} value={num}>
+                                                {num}x de R$ {valorParcela.toFixed(2)}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
                         </div>
-                        <button
-                            onClick={handleFinalizeSale}
-                            disabled={cart.length === 0 || !selectedClient || processing}
-                            className="w-full bg-pink-600 text-white font-bold py-3 rounded-md hover:bg-pink-700 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <CreditCard className="w-5 h-5 mr-2" />
-                            {processing ? 'Processando...' : 'Finalizar Venda'}
-                        </button>
+                    )}
+                </div>
+
+                {/* Total e Finalizar */}
+                <div className="border-t border-gray-200 pt-4">
+                    <div className="flex justify-between items-center mb-4">
+                        <span className="text-lg font-bold text-gray-800">Total:</span>
+                        <span className="text-2xl font-bold text-pink-600">
+                            R$ {calculateTotal().toFixed(2)}
+                        </span>
                     </div>
+                    <button
+                        onClick={handleFinalizeSale}
+                        disabled={cart.length === 0 || !selectedClient || processing}
+                        className="w-full bg-pink-600 text-white font-bold py-3 rounded-md hover:bg-pink-700 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <CreditCard className="w-5 h-5 mr-2" />
+                        {processing ? 'Processando...' : 'Finalizar Venda'}
+                    </button>
                 </div>
             </div>
 
