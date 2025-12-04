@@ -35,8 +35,10 @@ interface SaleReceiptProps {
 
 const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
     const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('pt-BR');
+        if (!dateString) return '';
+        const cleanDate = dateString.split('T')[0];
+        const [year, month, day] = cleanDate.split('-');
+        return `${day}/${month}/${year}`;
     };
 
     const formatPaymentMethod = (method: string) => {
@@ -164,7 +166,11 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                                     R$ {Number(parcela.valor_parcela).toFixed(2)}
                                 </td>
                                 <td style={{ padding: '12px', textAlign: 'center', fontSize: '13px', color: '#4B5563', border: '1px solid #E5E7EB' }}>
-                                    {formatDate(parcela.data_vencimento)}
+                                    {parcela.numero_parcela === 0 ? (
+                                        <span style={{ color: '#10B981', fontWeight: '600' }}>ENTRADA</span>
+                                    ) : (
+                                        formatDate(parcela.data_vencimento)
+                                    )}
                                 </td>
                                 <td style={{ padding: '12px', textAlign: 'center', fontSize: '13px', color: '#4B5563', border: '1px solid #E5E7EB' }}>
                                     {parcela.data_pagamento ? formatDate(parcela.data_pagamento) : '-'}

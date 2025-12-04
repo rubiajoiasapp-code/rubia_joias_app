@@ -654,9 +654,13 @@ const Credit: React.FC = () => {
                                                             <span className="text-sm font-bold text-gray-800">
                                                                 R$ {Number(installment.valor_parcela).toFixed(2)}
                                                             </span>
-                                                            <span className="text-sm text-gray-600">
-                                                                Vencimento: {formatDate(installment.data_vencimento)}
-                                                            </span>
+                                                            {installment.numero_parcela === 0 ? (
+                                                                <span className="text-sm text-green-600 font-semibold">Entrada</span>
+                                                            ) : (
+                                                                <span className="text-sm text-gray-600">
+                                                                    Vencimento: {formatDate(installment.data_vencimento)}
+                                                                </span>
+                                                            )}
                                                             {installment.pago && installment.data_pagamento && (
                                                                 <span className="text-xs text-green-600">
                                                                     Pago em: {formatDate(installment.data_pagamento)}
