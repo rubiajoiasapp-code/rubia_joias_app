@@ -708,7 +708,7 @@ const Credit: React.FC = () => {
             {/* Modal de Renegociação */}
             {renegotiating && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col">
                         <div className="p-6 border-b border-gray-200">
                             <div className="flex items-center justify-between mb-2">
                                 <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -725,7 +725,7 @@ const Credit: React.FC = () => {
                             <p className="text-gray-600">Cliente: <span className="font-semibold">{renegotiating.cliente.nome}</span></p>
                         </div>
 
-                        <div className="p-6 space-y-4">
+                        <div className="p-6 space-y-4 overflow-y-auto flex-1">
                             {/* Saldo Pendente */}
                             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                 <p className="text-sm text-orange-700 mb-1">Saldo Pendente</p>
@@ -817,7 +817,7 @@ const Credit: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="p-6 bg-gray-50 flex gap-3 rounded-b-2xl">
+                        <div className="p-6 bg-gray-50 flex gap-3 rounded-b-2xl shrink-0">
                             <button
                                 onClick={() => setRenegotiating(null)}
                                 className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-400 transition-colors"
@@ -839,3 +839,5 @@ const Credit: React.FC = () => {
 };
 
 export default Credit;
+
+
