@@ -10,6 +10,7 @@ import Inventory from './pages/Inventory';
 import Clients from './pages/Clients';
 import Credit from './pages/Credit';
 import Settings from './pages/Settings';
+import Catalog from './pages/Catalog';
 
 // TEMPORÁRIO: Desabilitar autenticação para desenvolvimento
 const DISABLE_AUTH = false;
@@ -19,8 +20,9 @@ function App() {
     <AuthProvider>
       <Router>
         <Routes>
-          {/* Public Route */}
+          {/* Public Routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/catalogo" element={<Catalog />} />
 
           {/* Protected Routes */}
           <Route
