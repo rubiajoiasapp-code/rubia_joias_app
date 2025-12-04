@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X } from 'lucide-react';
+import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Search } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface Product {
@@ -43,6 +43,10 @@ const Inventory: React.FC = () => {
         valor_venda: '',
         quantidade_estoque: ''
     });
+
+    // Estados para busca e filtro
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterTab, setFilterTab] = useState<'TODOS' | 'COM_ESTOQUE' | 'SEM_ESTOQUE'>('TODOS');
 
     useEffect(() => {
         fetchProducts();
@@ -313,6 +317,25 @@ const Inventory: React.FC = () => {
         }
     };
 
+    // Filtrar produtos baseado na busca e aba
+    const filteredProducts = products.filter(product => {
+        // Filtro de busca
+        const matchesSearch = searchTerm === '' ||
+            product.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            product.categoria?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            product.codigo.toLowerCase().includes(searchTerm.toLowerCase());
+
+        // Filtro de aba
+        let matchesTab = true;
+        if (filterTab === 'COM_ESTOQUE') {
+            matchesTab = product.quantidade_estoque > 0;
+        } else if (filterTab === 'SEM_ESTOQUE') {
+            matchesTab = product.quantidade_estoque === 0;
+        }
+
+        return matchesSearch && matchesTab;
+    });
+
     return (
         <div>
             <h2 className="text-3xl font-bold text-gray-800 mb-6">Estoque</h2>
@@ -333,6 +356,56 @@ const Inventory: React.FC = () => {
                         <div className="bg-white bg-opacity-20 rounded-full p-4">
                             <PackageIcon className="w-12 h-12 text-white" />
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Busca e Filtros */}
+            <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+                <div className="flex flex-col md:flex-row gap-4 items-center">
+                    {/* Campo de Busca */}
+                    <div className="flex-1 w-full">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                            <input
+                                type="text"
+                                placeholder="Buscar por produto, categoria ou código..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Abas de Filtro */}
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setFilterTab('TODOS')}
+                            className={`px-4 py-2 rounded-md font-medium transition-colors ${filterTab === 'TODOS'
+                                ? 'bg-pink-600 text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
+                        >
+                            Todos ({products.length})
+                        </button>
+                        <button
+                            onClick={() => setFilterTab('COM_ESTOQUE')}
+                            className={`px-4 py-2 rounded-md font-medium transition-colors ${filterTab === 'COM_ESTOQUE'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
+                        >
+                            Com Estoque ({products.filter(p => p.quantidade_estoque > 0).length})
+                        </button>
+                        <button
+                            onClick={() => setFilterTab('SEM_ESTOQUE')}
+                            className={`px-4 py-2 rounded-md font-medium transition-colors ${filterTab === 'SEM_ESTOQUE'
+                                ? 'bg-red-600 text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
+                        >
+                            Sem Estoque ({products.filter(p => p.quantidade_estoque === 0).length})
+                        </button>
                     </div>
                 </div>
             </div>
@@ -473,12 +546,14 @@ const Inventory: React.FC = () => {
                                 <tr>
                                     <td colSpan={6} className="p-4 text-center">Carregando...</td>
                                 </tr>
-                            ) : products.length === 0 ? (
+                            ) : filteredProducts.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="p-4 text-center">Nenhum produto cadastrado.</td>
+                                    <td colSpan={6} className="p-4 text-center text-gray-500">
+                                        {products.length === 0 ? 'Nenhum produto cadastrado.' : 'Nenhum produto encontrado com os filtros selecionados.'}
+                                    </td>
                                 </tr>
                             ) : (
-                                products.map((product) => (
+                                filteredProducts.map((product) => (
                                     <tr key={product.id} className={`border-t border-gray-100 hover:bg-gray-50 ${editingProduct?.id === product.id ? 'bg-blue-50' : ''}`}>
                                         <td className="p-4">
                                             {product.image_url ? (
