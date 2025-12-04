@@ -30,6 +30,7 @@ const Sales: React.FC = () => {
     const [paymentMethod, setPaymentMethod] = useState<string>('PIX');
     const [installments, setInstallments] = useState<number>(1);
     const [downPayment, setDownPayment] = useState<number>(0);
+    const [discount, setDiscount] = useState<number>(0);
     const [searchTerm, setSearchTerm] = useState('');
     const [qrCode, setQrCode] = useState('');
     const [showScanner, setShowScanner] = useState(false);
@@ -119,6 +120,12 @@ const Sales: React.FC = () => {
         return cart.reduce((total, item) => total + (item.valor_venda * item.quantity), 0);
     };
 
+    const calculateFinalTotal = () => {
+        const subtotal = calculateTotal();
+        const discountAmount = subtotal * (discount / 100);
+        return subtotal - discountAmount;
+    };
+
     const searchByQRCode = () => {
         if (!qrCode.trim()) return;
 
@@ -172,6 +179,8 @@ const Sales: React.FC = () => {
 
         try {
             const total = calculateTotal();
+            const finalTotal = calculateFinalTotal();
+            const discountAmount = total - finalTotal;
 
             // 1. Criar a venda
             const { data: saleData, error: saleError } = await supabase
@@ -179,8 +188,10 @@ const Sales: React.FC = () => {
                 .insert([{
                     cliente_id: selectedClient,
                     data_venda: new Date().toISOString(),
-                    valor_total: total,
-                    forma_pagamento: paymentMethod
+                    valor_total: finalTotal,
+                    forma_pagamento: paymentMethod,
+                    desconto_percentual: discount > 0 ? discount : null,
+                    desconto_valor: discount > 0 ? discountAmount : null
                 }])
                 .select()
                 .single();
@@ -258,7 +269,7 @@ const Sales: React.FC = () => {
                     .insert([{
                         venda_id: saleData.id,
                         numero_parcela: 1,
-                        valor_parcela: total,
+                        valor_parcela: finalTotal,
                         data_vencimento: dataVenda.toISOString().split('T')[0],
                         data_pagamento: dataVenda.toISOString(),
                         pago: true,
@@ -291,6 +302,7 @@ const Sales: React.FC = () => {
             setPaymentMethod('PIX');
             setInstallments(1);
             setDownPayment(0);
+            setDiscount(0);
             fetchProducts();
         } catch (error: any) {
             console.error('Error finalizing sale:', error);
@@ -470,6 +482,7 @@ const Sales: React.FC = () => {
                                             setDownPayment(0);
                                         } else {
                                             setInstallments(2);
+                                            setDiscount(0); // Resetar desconto ao selecionar Parcelado
                                         }
                                     }}
                                     className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${paymentMethod === method
@@ -484,6 +497,61 @@ const Sales: React.FC = () => {
                                 </button>
                             ))}
                         </div>
+
+                        {/* Desconto (apenas para à vista) */}
+                        {(paymentMethod === 'PIX' || paymentMethod === 'CARTAO_DEBITO' || paymentMethod === 'DINHEIRO') && (
+                            <div className="mt-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Desconto (%)</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">%</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.1"
+                                        value={discount}
+                                        onChange={(e) => {
+                                            const value = parseFloat(e.target.value) || 0;
+                                            if (value >= 0 && value <= 100) {
+                                                setDiscount(value);
+                                            }
+                                        }}
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                        placeholder="0"
+                                    />
+                                </div>
+                                {/* Botões Rápidos */}
+                                <div className="grid grid-cols-3 gap-2 mt-2">
+                                    {[5, 10, 15].map((percent) => (
+                                        <button
+                                            key={percent}
+                                            type="button"
+                                            onClick={() => setDiscount(percent)}
+                                            className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                                        >
+                                            {percent}%
+                                        </button>
+                                    ))}
+                                </div>
+                                {/* Info do Desconto */}
+                                {discount > 0 && (
+                                    <div className="mt-2 text-xs space-y-1">
+                                        <div className="flex justify-between text-gray-600">
+                                            <span>Subtotal:</span>
+                                            <span className="font-semibold">R$ {calculateTotal().toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-gray-600">
+                                            <span>Desconto ({discount}%):</span>
+                                            <span className="font-semibold text-green-600">- R$ {(calculateTotal() * discount / 100).toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-gray-900 font-bold pt-1 border-t">
+                                            <span>Total final:</span>
+                                            <span className="text-pink-600">R$ {calculateFinalTotal().toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Seleção de Parcelas e Entrada */}
                         {paymentMethod === 'FIADO' && (
@@ -568,7 +636,7 @@ const Sales: React.FC = () => {
                         <div className="flex justify-between items-center mb-4">
                             <span className="text-lg font-bold text-gray-800">Total:</span>
                             <span className="text-2xl font-bold text-pink-600">
-                                R$ {calculateTotal().toFixed(2)}
+                                R$ {calculateFinalTotal().toFixed(2)}
                             </span>
                         </div>
                         <button
