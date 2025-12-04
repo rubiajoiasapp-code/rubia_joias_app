@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle } from 'lucide-react';
+import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import SaleReceipt from '../components/SaleReceipt';
 
@@ -38,6 +38,11 @@ const Credit: React.FC = () => {
     const [expandedSale, setExpandedSale] = useState<string | null>(null);
     const [editingInstallment, setEditingInstallment] = useState<Installment | null>(null);
     const [filter, setFilter] = useState<'TODAS' | 'PARCELADAS' | 'AVISTA'>('TODAS');
+    const [renegotiating, setRenegotiating] = useState<SaleWithInstallments | null>(null);
+    const [renegotiationForm, setRenegotiationForm] = useState({
+        downPayment: 0,
+        newInstallments: 3
+    });
     const [editForm, setEditForm] = useState({
         valor_parcela: '',
         data_vencimento: '',
@@ -289,6 +294,96 @@ const Credit: React.FC = () => {
             alert('❌ Erro ao compartilhar. Tente baixar o resumo manualmente.');
         }
     };
+
+    const handleRenegotiate = async () => {
+        if (!renegotiating) return;
+
+        const { downPayment, newInstallments } = renegotiationForm;
+        const saldoPendente = renegotiating.totalPendente;
+
+        if (downPayment > saldoPendente) {
+            alert('⚠️ Entrada não pode ser maior que o saldo pendente!');
+            return;
+        }
+
+        const confirmRenegotiate = window.confirm(
+            `Confirma renegociação da venda?\n\n` +
+            `Saldo pendente: R$ ${saldoPendente.toFixed(2)}\n` +
+            `Entrada: R$ ${downPayment.toFixed(2)}\n` +
+            `Novas parcelas: ${newInstallments}x de R$ ${((saldoPendente - downPayment) / newInstallments).toFixed(2)}\n\n` +
+            `As parcelas antigas não pagas serão canceladas.`
+        );
+
+        if (!confirmRenegotiate) return;
+
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            const dataRenegociacao = new Date().toLocaleDateString('pt-BR');
+
+            // 1. Cancelar parcelas antigas não pagas
+            const { error: cancelError } = await supabase
+                .from('parcelas_venda')
+                .update({
+                    pago: true,
+                    data_pagamento: today,
+                    observacoes: `Cancelada - Renegociação em ${dataRenegociacao}`
+                })
+                .eq('venda_id', renegotiating.id)
+                .eq('pago', false);
+
+            if (cancelError) throw cancelError;
+
+            // 2. Criar parcela de entrada (se houver)
+            if (downPayment > 0) {
+                const { error: entradaError } = await supabase
+                    .from('parcelas_venda')
+                    .insert([{
+                        venda_id: renegotiating.id,
+                        numero_parcela: 9000,
+                        valor_parcela: downPayment,
+                        data_vencimento: today,
+                        data_pagamento: today,
+                        pago: true,
+                        observacoes: `Entrada - Renegociação ${dataRenegociacao}`
+                    }]);
+
+                if (entradaError) throw entradaError;
+            }
+
+            // 3. Criar novas parcelas
+            const novoSaldo = saldoPendente - downPayment;
+            const valorParcela = novoSaldo / newInstallments;
+            const novasParcelas = [];
+
+            for (let i = 1; i <= newInstallments; i++) {
+                const dataVencimento = new Date();
+                dataVencimento.setMonth(dataVencimento.getMonth() + i);
+
+                novasParcelas.push({
+                    venda_id: renegotiating.id,
+                    numero_parcela: 9000 + i,
+                    valor_parcela: valorParcela,
+                    data_vencimento: dataVencimento.toISOString().split('T')[0],
+                    pago: false,
+                    observacoes: `Renegociação ${dataRenegociacao}`
+                });
+            }
+
+            const { error: parcelasError } = await supabase
+                .from('parcelas_venda')
+                .insert(novasParcelas);
+
+            if (parcelasError) throw parcelasError;
+
+            alert('✅ Venda renegociada com sucesso!');
+            setRenegotiating(null);
+            setRenegotiationForm({ downPayment: 0, newInstallments: 3 });
+            fetchSalesWithInstallments();
+        } catch (error: any) {
+            console.error('Erro ao renegociar venda:', error);
+            alert('Erro ao renegociar venda: ' + error.message);
+        }
+    };
     const isOverdue = (installment: Installment) => {
         if (installment.pago) return false;
         const today = new Date();
@@ -432,6 +527,19 @@ const Credit: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                        {sale.totalPendente > 0 && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setRenegotiating(sale);
+                                                    setRenegotiationForm({ downPayment: 0, newInstallments: 3 });
+                                                }}
+                                                className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                                                title="Renegociar venda"
+                                            >
+                                                <RefreshCw className="w-5 h-5" />
+                                            </button>
+                                        )}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -596,6 +704,136 @@ const Credit: React.FC = () => {
             {sales.map((sale) => (
                 <SaleReceipt key={`receipt-${sale.id}`} sale={sale} />
             ))}
+
+            {/* Modal de Renegociação */}
+            {renegotiating && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+                        <div className="p-6 border-b border-gray-200">
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                    <RefreshCw className="w-6 h-6 text-orange-600" />
+                                    Renegociar Venda
+                                </h3>
+                                <button
+                                    onClick={() => setRenegotiating(null)}
+                                    className="text-gray-400 hover:text-gray-600"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+                            <p className="text-gray-600">Cliente: <span className="font-semibold">{renegotiating.cliente.nome}</span></p>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            {/* Saldo Pendente */}
+                            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                <p className="text-sm text-orange-700 mb-1">Saldo Pendente</p>
+                                <p className="text-2xl font-bold text-orange-900">R$ {renegotiating.totalPendente.toFixed(2)}</p>
+                            </div>
+
+                            {/* Entrada */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Entrada (Opcional)</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">R$</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max={renegotiating.totalPendente}
+                                        step="0.01"
+                                        value={renegotiationForm.downPayment}
+                                        onChange={(e) => {
+                                            const value = parseFloat(e.target.value) || 0;
+                                            if (value <= renegotiating.totalPendente) {
+                                                setRenegotiationForm({ ...renegotiationForm, downPayment: value });
+                                            }
+                                        }}
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                {/* Botões Rápidos */}
+                                <div className="grid grid-cols-4 gap-2 mt-2">
+                                    {[10, 20, 30, 50].map((percent) => (
+                                        <button
+                                            key={percent}
+                                            type="button"
+                                            onClick={() => setRenegotiationForm({
+                                                ...renegotiationForm,
+                                                downPayment: (renegotiating.totalPendente * percent) / 100
+                                            })}
+                                            className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                                        >
+                                            {percent}%
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Info */}
+                                {renegotiationForm.downPayment > 0 && (
+                                    <div className="mt-2 text-xs space-y-1">
+                                        <div className="flex justify-between text-gray-600">
+                                            <span>Entrada:</span>
+                                            <span className="font-semibold text-green-600">R$ {renegotiationForm.downPayment.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-gray-600">
+                                            <span>Novo saldo:</span>
+                                            <span className="font-semibold text-orange-600">R$ {(renegotiating.totalPendente - renegotiationForm.downPayment).toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Novas Parcelas */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Novas Parcelas</label>
+                                <select
+                                    value={renegotiationForm.newInstallments}
+                                    onChange={(e) => setRenegotiationForm({ ...renegotiationForm, newInstallments: parseInt(e.target.value) })}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                >
+                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((num) => {
+                                        const novoSaldo = renegotiating.totalPendente - renegotiationForm.downPayment;
+                                        const valorParcela = novoSaldo / num;
+                                        return (
+                                            <option key={num} value={num}>
+                                                {num}x de R$ {valorParcela.toFixed(2)}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+
+                            {/* Preview */}
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <p className="text-xs font-semibold text-blue-900 mb-2">Preview:</p>
+                                <div className="text-xs text-blue-800 space-y-1">
+                                    {renegotiationForm.downPayment > 0 && (
+                                        <p>• 1 entrada de R$ {renegotiationForm.downPayment.toFixed(2)} (paga hoje)</p>
+                                    )}
+                                    <p>• {renegotiationForm.newInstallments} parcelas de R$ {((renegotiating.totalPendente - renegotiationForm.downPayment) / renegotiationForm.newInstallments).toFixed(2)} (a pagar)</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-gray-50 flex gap-3 rounded-b-2xl">
+                            <button
+                                onClick={() => setRenegotiating(null)}
+                                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-400 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleRenegotiate}
+                                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 transition-colors"
+                            >
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
