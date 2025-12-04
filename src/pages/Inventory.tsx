@@ -48,9 +48,23 @@ const Inventory: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterTab, setFilterTab] = useState<'TODOS' | 'COM_ESTOQUE' | 'SEM_ESTOQUE'>('TODOS');
 
+    // Estado para zoom de imagem
+    const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+
     useEffect(() => {
         fetchProducts();
     }, []);
+
+    // Fechar modal de zoom com ESC
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && zoomedImage) {
+                setZoomedImage(null);
+            }
+        };
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [zoomedImage]);
 
     const fetchProducts = async () => {
         try {
@@ -560,7 +574,9 @@ const Inventory: React.FC = () => {
                                                 <img
                                                     src={product.image_url}
                                                     alt={product.descricao}
-                                                    className="w-16 h-16 object-cover rounded-md"
+                                                    className="w-16 h-16 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity"
+                                                    onClick={() => setZoomedImage(product.image_url)}
+                                                    title="Clique para ampliar"
                                                 />
                                             ) : (
                                                 <div className="w-16 h-16 bg-gray-200 rounded-md flex items-center justify-center">
@@ -736,6 +752,30 @@ const Inventory: React.FC = () => {
                                 Fechar
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Zoom de Imagem */}
+            {zoomedImage && (
+                <div
+                    className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4"
+                    onClick={() => setZoomedImage(null)}
+                >
+                    <div className="relative max-w-6xl max-h-[90vh] w-full h-full flex items-center justify-center">
+                        <button
+                            onClick={() => setZoomedImage(null)}
+                            className="absolute top-4 right-4 text-white bg-black bg-opacity-50 hover:bg-opacity-75 rounded-full p-2 transition-all"
+                            title="Fechar (ESC)"
+                        >
+                            <X className="w-6 h-6" />
+                        </button>
+                        <img
+                            src={zoomedImage}
+                            alt="Imagem ampliada"
+                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        />
                     </div>
                 </div>
             )}
