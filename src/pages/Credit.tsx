@@ -122,7 +122,7 @@ const Credit: React.FC = () => {
                     valor_parcela: parseFloat(editForm.valor_parcela),
                     data_vencimento: editForm.data_vencimento,
                     pago: editForm.pago,
-                    data_pagamento: editForm.pago ? new Date().toISOString().split('T')[0] : null
+                    data_pagamento: editForm.pago ? new Date().toLocaleDateString('en-CA') : null
                 })
                 .eq('id', editingInstallment.id);
 
@@ -143,7 +143,7 @@ const Credit: React.FC = () => {
                 .from('parcelas_venda')
                 .update({
                     pago: !installment.pago,
-                    data_pagamento: !installment.pago ? new Date().toISOString().split('T')[0] : null
+                    data_pagamento: !installment.pago ? new Date().toLocaleDateString('en-CA') : null
                 })
                 .eq('id', installment.id);
 
@@ -317,7 +317,7 @@ const Credit: React.FC = () => {
         if (!confirmRenegotiate) return;
 
         try {
-            const today = new Date().toISOString().split('T')[0];
+            const today = new Date().toLocaleDateString('en-CA');
             const dataRenegociacao = new Date().toLocaleDateString('pt-BR');
 
             // 1. Cancelar parcelas antigas não pagas
@@ -363,7 +363,7 @@ const Credit: React.FC = () => {
                     venda_id: renegotiating.id,
                     numero_parcela: 9000 + i,
                     valor_parcela: valorParcela,
-                    data_vencimento: dataVencimento.toISOString().split('T')[0],
+                    data_vencimento: dataVencimento.toLocaleDateString('en-CA'),
                     pago: false,
                     observacoes: `Renegociação ${dataRenegociacao}`
                 });
@@ -386,15 +386,15 @@ const Credit: React.FC = () => {
     };
     const isOverdue = (installment: Installment) => {
         if (installment.pago) return false;
-        const today = new Date();
-        const dueDate = new Date(installment.data_vencimento);
-        return dueDate < today;
+        const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+        return installment.data_vencimento < today;
     };
 
 
     const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('pt-BR');
+        if (!dateString) return '';
+        const [year, month, day] = dateString.split('-');
+        return `${day}/${month}/${year}`;
     };
 
     if (loading) {
