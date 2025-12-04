@@ -393,7 +393,8 @@ const Credit: React.FC = () => {
 
     const formatDate = (dateString: string) => {
         if (!dateString) return '';
-        const [year, month, day] = dateString.split('-');
+        const cleanDate = dateString.split('T')[0];
+        const [year, month, day] = cleanDate.split('-');
         return `${day}/${month}/${year}`;
     };
 
