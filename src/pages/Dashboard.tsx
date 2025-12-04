@@ -258,7 +258,7 @@ const Dashboard: React.FC = () => {
                     trendValue="-5%"
                 />
                 <StatCard
-                    title="Produtos em Estoque"
+                    title="Produtos Cadastrados"
                     value={metrics.produtosEstoque}
                     icon={Package}
                     gradient="from-purple-500 to-indigo-500"

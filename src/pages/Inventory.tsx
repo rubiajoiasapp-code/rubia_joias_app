@@ -349,7 +349,7 @@ const Inventory: React.FC = () => {
                             R$ {products.reduce((total, p) => total + (p.valor_venda * p.quantidade_estoque), 0).toFixed(2)}
                         </p>
                         <p className="text-xs text-pink-100 mt-2">
-                            {products.reduce((total, p) => total + p.quantidade_estoque, 0)} produtos no estoque
+                            {products.reduce((total, p) => total + p.quantidade_estoque, 0)} unidades • {products.length} produtos cadastrados
                         </p>
                     </div>
                     <div className="hidden md:block">
