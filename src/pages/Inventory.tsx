@@ -317,6 +317,26 @@ const Inventory: React.FC = () => {
         <div>
             <h2 className="text-3xl font-bold text-gray-800 mb-6">Estoque</h2>
 
+            {/* Valor Total em Estoque */}
+            <div className="bg-gradient-to-br from-pink-500 to-purple-600 rounded-lg shadow-lg p-6 mb-6 text-white">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm font-medium text-pink-100 mb-1">💎 Valor Total em Estoque</p>
+                        <p className="text-4xl font-bold tracking-tight">
+                            R$ {products.reduce((total, p) => total + (p.valor_venda * p.quantidade_estoque), 0).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-pink-100 mt-2">
+                            {products.reduce((total, p) => total + p.quantidade_estoque, 0)} produtos no estoque
+                        </p>
+                    </div>
+                    <div className="hidden md:block">
+                        <div className="bg-white bg-opacity-20 rounded-full p-4">
+                            <PackageIcon className="w-12 h-12 text-white" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {/* Form Section */}
             <div className={`bg-white p-6 rounded-lg shadow-md mb-8 transition-all ${editingProduct ? 'ring-2 ring-blue-500' : ''}`}>
                 <div className="flex justify-between items-center mb-4">
