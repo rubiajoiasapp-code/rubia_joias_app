@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Search, CheckSquare, Eye, EyeOff, LayoutGrid } from 'lucide-react';
+import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Search, CheckSquare, Eye, EyeOff } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface Product {
