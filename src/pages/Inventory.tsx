@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Search } from 'lucide-react';
+import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Search, CheckSquare, Eye, EyeOff, LayoutGrid } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface Product {
@@ -13,6 +13,7 @@ interface Product {
     quantidade_estoque: number;
     image_url: string | null;
     conta_pagar_id?: string | null;
+    show_in_catalog?: boolean;
 }
 
 interface PurchaseOrigin {
@@ -51,6 +52,10 @@ const Inventory: React.FC = () => {
     // Estado para zoom de imagem
     const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
+    // Estado para seleção de produtos
+    const [selectedProds, setSelectedProds] = useState<Set<string>>(new Set());
+    const [processingBulk, setProcessingBulk] = useState(false);
+
     useEffect(() => {
         fetchProducts();
     }, []);
@@ -71,8 +76,12 @@ const Inventory: React.FC = () => {
             const { data, error } = await supabase
                 .from('produtos')
                 .select('*')
+                .select('*')
                 .order('created_at', { ascending: false });
 
+            // Ensure show_in_catalog is treated as boolean (auto from supabase but good to be safe)
+            // If column doesn't exist yet, it will be undefined, so defaulting to true for local logic
+            // until migration is run might be confusing. Let's assume migration is run.
             if (error) throw error;
             setProducts(data || []);
         } catch (error) {
@@ -350,6 +359,48 @@ const Inventory: React.FC = () => {
         return matchesSearch && matchesTab;
     });
 
+    // Handlers para seleção
+    const toggleSelect = (id: string) => {
+        const newSelected = new Set(selectedProds);
+        if (newSelected.has(id)) {
+            newSelected.delete(id);
+        } else {
+            newSelected.add(id);
+        }
+        setSelectedProds(newSelected);
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedProds.size === filteredProducts.length && filteredProducts.length > 0) {
+            setSelectedProds(new Set());
+        } else {
+            setSelectedProds(new Set(filteredProducts.map(p => p.id)));
+        }
+    };
+
+    const handleBulkCatalogUpdate = async (show: boolean) => {
+        if (selectedProds.size === 0) return;
+        setProcessingBulk(true);
+
+        try {
+            const { error } = await supabase
+                .from('produtos')
+                .update({ show_in_catalog: show })
+                .in('id', Array.from(selectedProds));
+
+            if (error) throw error;
+
+            alert(`✅ ${selectedProds.size} produtos ${show ? 'adicionados ao' : 'removidos do'} catálogo com sucesso!`);
+            setSelectedProds(new Set()); // Clear selection
+            fetchProducts();
+        } catch (error: any) {
+            console.error('Error updating catalog status:', error);
+            alert('Erro ao atualizar catálogo: ' + error.message);
+        } finally {
+            setProcessingBulk(false);
+        }
+    };
+
     return (
         <div>
             <h2 className="text-3xl font-bold text-gray-800 mb-6">Estoque</h2>
@@ -373,6 +424,47 @@ const Inventory: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Bulk Actions Bar */}
+            {selectedProds.size > 0 && (
+                <div className="bg-blue-600 text-white p-4 rounded-lg shadow-md mb-6 flex flex-wrap items-center justify-between animate-fade-in">
+                    <div className="flex items-center gap-4">
+                        <span className="font-bold flex items-center gap-2">
+                            <CheckSquare className="w-5 h-5" />
+                            {selectedProds.size} selecionado(s)
+                        </span>
+                        <div className="h-6 w-px bg-blue-400"></div>
+                        <span className="text-sm text-blue-100">
+                            Ações em massa:
+                        </span>
+                    </div>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => handleBulkCatalogUpdate(true)}
+                            disabled={processingBulk}
+                            className="bg-white text-blue-600 px-4 py-2 rounded-md font-medium hover:bg-blue-50 transition-colors flex items-center gap-2"
+                        >
+                            <Eye className="w-4 h-4" />
+                            Mostrar no Catálogo
+                        </button>
+                        <button
+                            onClick={() => handleBulkCatalogUpdate(false)}
+                            disabled={processingBulk}
+                            className="bg-blue-800 text-white px-4 py-2 rounded-md font-medium hover:bg-blue-900 transition-colors flex items-center gap-2"
+                        >
+                            <EyeOff className="w-4 h-4" />
+                            Ocultar do Catálogo
+                        </button>
+                        <button
+                            onClick={() => setSelectedProds(new Set())}
+                            className="text-white hover:text-blue-200 p-2"
+                            title="Desmarcar todos"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Busca e Filtros */}
             <div className="bg-white rounded-lg shadow-md p-4 mb-6">
@@ -547,28 +639,45 @@ const Inventory: React.FC = () => {
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="bg-gray-50 text-gray-600 text-sm">
+                                <th className="p-4 w-10">
+                                    <input
+                                        type="checkbox"
+                                        checked={filteredProducts.length > 0 && selectedProds.size === filteredProducts.length}
+                                        onChange={toggleSelectAll}
+                                        className="rounded border-gray-300 text-pink-600 focus:ring-pink-500 h-4 w-4"
+                                    />
+                                </th>
                                 <th className="p-4 font-medium">Imagem</th>
                                 <th className="p-4 font-medium">Produto</th>
                                 <th className="p-4 font-medium">QR Code</th>
                                 <th className="p-4 font-medium">Preço</th>
                                 <th className="p-4 font-medium">Estoque</th>
+                                <th className="p-4 font-medium text-center">Catálogo</th>
                                 <th className="p-4 font-medium text-center">Ações</th>
                             </tr>
                         </thead>
                         <tbody className="text-gray-700">
                             {loading ? (
                                 <tr>
-                                    <td colSpan={6} className="p-4 text-center">Carregando...</td>
+                                    <td colSpan={8} className="p-4 text-center">Carregando...</td>
                                 </tr>
                             ) : filteredProducts.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="p-4 text-center text-gray-500">
+                                    <td colSpan={8} className="p-4 text-center text-gray-500">
                                         {products.length === 0 ? 'Nenhum produto cadastrado.' : 'Nenhum produto encontrado com os filtros selecionados.'}
                                     </td>
                                 </tr>
                             ) : (
                                 filteredProducts.map((product) => (
                                     <tr key={product.id} className={`border-t border-gray-100 hover:bg-gray-50 ${editingProduct?.id === product.id ? 'bg-blue-50' : ''}`}>
+                                        <td className="p-4">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedProds.has(product.id)}
+                                                onChange={() => toggleSelect(product.id)}
+                                                className="rounded border-gray-300 text-pink-600 focus:ring-pink-500 h-4 w-4"
+                                            />
+                                        </td>
                                         <td className="p-4">
                                             {product.image_url ? (
                                                 <img
@@ -631,6 +740,21 @@ const Inventory: React.FC = () => {
                                                 {product.quantidade_estoque} unid.
                                             </span>
                                         </td>
+                                        <td className="p-4 text-center">
+                                            <div className="flex flex-col items-center justify-center">
+                                                {product.show_in_catalog ? (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                        <Eye className="w-3 h-3 mr-1" />
+                                                        Visível
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                                        <EyeOff className="w-3 h-3 mr-1" />
+                                                        Oculto
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
                                         <td className="p-4 flex justify-center space-x-2">
                                             <button
                                                 onClick={() => handleAddStock(product)}
@@ -663,123 +787,127 @@ const Inventory: React.FC = () => {
             </div>
 
             {/* Modal de Origem do Produto */}
-            {showOriginModal && selectedOrigin && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-                        <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-                            <h3 className="text-xl font-bold text-gray-800">
-                                📋 Origem do Produto - Nota Fiscal
-                            </h3>
+            {
+                showOriginModal && selectedOrigin && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                <h3 className="text-xl font-bold text-gray-800">
+                                    📋 Origem do Produto - Nota Fiscal
+                                </h3>
+                                <button
+                                    onClick={() => setShowOriginModal(false)}
+                                    className="text-gray-500 hover:text-gray-700"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+
+                            <div className="p-6 space-y-4">
+                                {/* Nota Fiscal */}
+                                <div className="bg-blue-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold text-blue-900 mb-2">Nota Fiscal</h4>
+                                    <p className="text-2xl font-bold text-blue-700">
+                                        {selectedOrigin.numero_nota_fiscal || 'Não informado'}
+                                    </p>
+                                </div>
+
+                                {/* Fornecedor */}
+                                <div className="bg-gray-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold text-gray-900 mb-3">Fornecedor</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                            <span className="text-sm text-gray-600">Nome:</span>
+                                            <p className="font-medium text-gray-800">{selectedOrigin.fornecedor.nome}</p>
+                                        </div>
+                                        {selectedOrigin.fornecedor.cpf_cnpj && (
+                                            <div>
+                                                <span className="text-sm text-gray-600">CPF/CNPJ:</span>
+                                                <p className="font-medium text-gray-800">{selectedOrigin.fornecedor.cpf_cnpj}</p>
+                                            </div>
+                                        )}
+                                        {selectedOrigin.fornecedor.telefone && (
+                                            <div>
+                                                <span className="text-sm text-gray-600">Telefone:</span>
+                                                <p className="font-medium text-gray-800">{selectedOrigin.fornecedor.telefone}</p>
+                                            </div>
+                                        )}
+                                        {selectedOrigin.fornecedor.endereco && (
+                                            <div className="md:col-span-2">
+                                                <span className="text-sm text-gray-600">Endereço:</span>
+                                                <p className="font-medium text-gray-800">{selectedOrigin.fornecedor.endereco}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Detalhes da Compra */}
+                                <div className="bg-green-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold text-green-900 mb-3">Detalhes da Compra</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                            <span className="text-sm text-gray-600">Descrição:</span>
+                                            <p className="font-medium text-gray-800">{selectedOrigin.descricao}</p>
+                                        </div>
+                                        <div>
+                                            <span className="text-sm text-gray-600">Valor Total:</span>
+                                            <p className="font-medium text-green-700 text-lg">R$ {selectedOrigin.valor_total.toFixed(2)}</p>
+                                        </div>
+                                        {selectedOrigin.forma_pagamento && (
+                                            <div>
+                                                <span className="text-sm text-gray-600">Forma de Pagamento:</span>
+                                                <p className="font-medium text-gray-800">{selectedOrigin.forma_pagamento.replace('_', ' ')}</p>
+                                            </div>
+                                        )}
+                                        <div>
+                                            <span className="text-sm text-gray-600">Data da Compra:</span>
+                                            <p className="font-medium text-gray-800">
+                                                {new Date(selectedOrigin.created_at).toLocaleDateString('pt-BR')}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-6 border-t border-gray-200 flex justify-end">
+                                <button
+                                    onClick={() => setShowOriginModal(false)}
+                                    className="bg-gray-600 text-white px-6 py-2 rounded-md hover:bg-gray-700"
+                                >
+                                    Fechar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Modal de Zoom de Imagem */}
+            {
+                zoomedImage && (
+                    <div
+                        className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4"
+                        onClick={() => setZoomedImage(null)}
+                    >
+                        <div className="relative max-w-6xl max-h-[90vh] w-full h-full flex items-center justify-center">
                             <button
-                                onClick={() => setShowOriginModal(false)}
-                                className="text-gray-500 hover:text-gray-700"
+                                onClick={() => setZoomedImage(null)}
+                                className="absolute top-4 right-4 text-white bg-black bg-opacity-50 hover:bg-opacity-75 rounded-full p-2 transition-all"
+                                title="Fechar (ESC)"
                             >
                                 <X className="w-6 h-6" />
                             </button>
-                        </div>
-
-                        <div className="p-6 space-y-4">
-                            {/* Nota Fiscal */}
-                            <div className="bg-blue-50 p-4 rounded-lg">
-                                <h4 className="font-semibold text-blue-900 mb-2">Nota Fiscal</h4>
-                                <p className="text-2xl font-bold text-blue-700">
-                                    {selectedOrigin.numero_nota_fiscal || 'Não informado'}
-                                </p>
-                            </div>
-
-                            {/* Fornecedor */}
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                                <h4 className="font-semibold text-gray-900 mb-3">Fornecedor</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div>
-                                        <span className="text-sm text-gray-600">Nome:</span>
-                                        <p className="font-medium text-gray-800">{selectedOrigin.fornecedor.nome}</p>
-                                    </div>
-                                    {selectedOrigin.fornecedor.cpf_cnpj && (
-                                        <div>
-                                            <span className="text-sm text-gray-600">CPF/CNPJ:</span>
-                                            <p className="font-medium text-gray-800">{selectedOrigin.fornecedor.cpf_cnpj}</p>
-                                        </div>
-                                    )}
-                                    {selectedOrigin.fornecedor.telefone && (
-                                        <div>
-                                            <span className="text-sm text-gray-600">Telefone:</span>
-                                            <p className="font-medium text-gray-800">{selectedOrigin.fornecedor.telefone}</p>
-                                        </div>
-                                    )}
-                                    {selectedOrigin.fornecedor.endereco && (
-                                        <div className="md:col-span-2">
-                                            <span className="text-sm text-gray-600">Endereço:</span>
-                                            <p className="font-medium text-gray-800">{selectedOrigin.fornecedor.endereco}</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Detalhes da Compra */}
-                            <div className="bg-green-50 p-4 rounded-lg">
-                                <h4 className="font-semibold text-green-900 mb-3">Detalhes da Compra</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div>
-                                        <span className="text-sm text-gray-600">Descrição:</span>
-                                        <p className="font-medium text-gray-800">{selectedOrigin.descricao}</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-sm text-gray-600">Valor Total:</span>
-                                        <p className="font-medium text-green-700 text-lg">R$ {selectedOrigin.valor_total.toFixed(2)}</p>
-                                    </div>
-                                    {selectedOrigin.forma_pagamento && (
-                                        <div>
-                                            <span className="text-sm text-gray-600">Forma de Pagamento:</span>
-                                            <p className="font-medium text-gray-800">{selectedOrigin.forma_pagamento.replace('_', ' ')}</p>
-                                        </div>
-                                    )}
-                                    <div>
-                                        <span className="text-sm text-gray-600">Data da Compra:</span>
-                                        <p className="font-medium text-gray-800">
-                                            {new Date(selectedOrigin.created_at).toLocaleDateString('pt-BR')}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="p-6 border-t border-gray-200 flex justify-end">
-                            <button
-                                onClick={() => setShowOriginModal(false)}
-                                className="bg-gray-600 text-white px-6 py-2 rounded-md hover:bg-gray-700"
-                            >
-                                Fechar
-                            </button>
+                            <img
+                                src={zoomedImage}
+                                alt="Imagem ampliada"
+                                className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                                onClick={(e) => e.stopPropagation()}
+                            />
                         </div>
                     </div>
-                </div>
-            )}
-
-            {/* Modal de Zoom de Imagem */}
-            {zoomedImage && (
-                <div
-                    className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4"
-                    onClick={() => setZoomedImage(null)}
-                >
-                    <div className="relative max-w-6xl max-h-[90vh] w-full h-full flex items-center justify-center">
-                        <button
-                            onClick={() => setZoomedImage(null)}
-                            className="absolute top-4 right-4 text-white bg-black bg-opacity-50 hover:bg-opacity-75 rounded-full p-2 transition-all"
-                            title="Fechar (ESC)"
-                        >
-                            <X className="w-6 h-6" />
-                        </button>
-                        <img
-                            src={zoomedImage}
-                            alt="Imagem ampliada"
-                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-                            onClick={(e) => e.stopPropagation()}
-                        />
-                    </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 

@@ -31,6 +31,7 @@ const Catalog: React.FC = () => {
             const { data, error } = await supabase
                 .from('produtos')
                 .select('*')
+                .eq('show_in_catalog', true)
                 .gt('quantidade_estoque', 0)
                 .order('descricao');
 
@@ -119,8 +120,8 @@ const Catalog: React.FC = () => {
                                     key={category}
                                     onClick={() => setSelectedCategory(category)}
                                     className={`px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${selectedCategory === category
-                                            ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-lg'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-lg'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
                                 >
                                     {category}
