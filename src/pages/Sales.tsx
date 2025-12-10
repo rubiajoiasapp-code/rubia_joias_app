@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { ShoppingCart, Search, QrCode, Package as PackageIcon, Trash2, CreditCard, Camera, X } from 'lucide-react';
+import { ShoppingCart, Search, QrCode, Package as PackageIcon, Trash2, CreditCard, Camera, X, ArrowDown } from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 
 interface Product {
@@ -408,7 +408,7 @@ const Sales: React.FC = () => {
             </div>
 
             {/* Coluna Lateral - Carrinho e Checkout */}
-            <div className="lg:col-span-1">
+            <div className="lg:col-span-1" id="sales-summary">
                 <div className="bg-white p-6 rounded-lg shadow-md sticky top-6">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-xl font-bold text-gray-800 flex items-center">
@@ -690,6 +690,37 @@ const Sales: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Floating Action Button para Mobile - Ir para Resumo */}
+            {cart.length > 0 && (
+                <div className="fixed bottom-6 right-4 left-4 z-50 lg:hidden animate-fade-in-up">
+                    <button
+                        onClick={() => {
+                            const summaryElement = document.getElementById('sales-summary');
+                            if (summaryElement) {
+                                summaryElement.scrollIntoView({ behavior: 'smooth' });
+                            }
+                        }}
+                        className="w-full bg-pink-600 text-white shadow-xl rounded-full py-4 px-6 flex items-center justify-between hover:bg-pink-700 transition-all transform hover:scale-[1.02] active:scale-95"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="bg-white text-pink-600 rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm shadow-sm">
+                                {cart.reduce((total, item) => total + item.quantity, 0)}
+                            </div>
+                            <span className="font-bold text-lg">Resumo</span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <span className="font-bold text-xl">
+                                R$ {calculateFinalTotal().toFixed(2)}
+                            </span>
+                            <ArrowDown className="w-6 h-6 animate-bounce" />
+                        </div>
+                    </button>
+                    {/* Background de proteção para leitura */}
+                    <div className="absolute inset-0 -z-10 bg-white/10 blur-md rounded-full"></div>
+                </div>
+            )}
         </div>
     );
 };
