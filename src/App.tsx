@@ -10,6 +10,7 @@ import Inventory from './pages/Inventory';
 import Clients from './pages/Clients';
 import Credit from './pages/Credit';
 import Settings from './pages/Settings';
+import ExpirationDates from './pages/ExpirationDates';
 import Catalog from './pages/Catalog';
 
 // TEMPORÁRIO: Desabilitar autenticação para desenvolvimento
@@ -38,6 +39,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="clientes" element={<Clients />} />
             <Route path="vendas" element={<Sales />} />
+            <Route path="vencimentos" element={<ExpirationDates />} />
             <Route path="financeiro" element={<Financial />} />
             <Route path="crediario" element={<Credit />} />
             <Route path="estoque" element={<Inventory />} />

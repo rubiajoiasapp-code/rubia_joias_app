@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingCart, DollarSign, Package, Users, CreditCard, LogOut, Menu, X, Settings } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, DollarSign, Package, Users, CreditCard, LogOut, Menu, X, Settings, CalendarClock } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Layout: React.FC = () => {
@@ -22,6 +22,7 @@ const Layout: React.FC = () => {
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/clientes', label: 'Clientes', icon: Users },
         { path: '/vendas', label: 'Vendas', icon: ShoppingCart },
+        { path: '/vencimentos', label: 'Vencimentos', icon: CalendarClock },
         { path: '/financeiro', label: 'Financeiro', icon: DollarSign },
         { path: '/crediario', label: 'Crediário', icon: CreditCard },
         { path: '/estoque', label: 'Estoque', icon: Package },
