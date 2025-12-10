@@ -35,7 +35,9 @@ const Sales: React.FC = () => {
     const [qrCode, setQrCode] = useState('');
     const [showScanner, setShowScanner] = useState(false);
     const [loading, setLoading] = useState(true);
+
     const [processing, setProcessing] = useState(false);
+    const [showMobileCart, setShowMobileCart] = useState(false);
 
     useEffect(() => {
         fetchProducts();
@@ -408,16 +410,43 @@ const Sales: React.FC = () => {
             </div>
 
             {/* Coluna Lateral - Carrinho e Checkout */}
-            <div className="lg:col-span-1" id="sales-summary">
-                <div className="bg-white p-6 rounded-lg shadow-md sticky top-6">
+            {/* Em mobile, pode ser um modal fixo se showMobileCart for true */}
+            <div
+                className={`lg:col-span-1 transition-all duration-300 ${showMobileCart
+                    ? 'fixed inset-0 z-50 bg-white p-4 overflow-y-auto h-full'
+                    : 'hidden lg:block'
+                    }`}
+                id="sales-summary"
+            >
+                <div className={`bg-white rounded-lg ${showMobileCart ? '' : 'shadow-md sticky top-6 p-6'}`}>
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-xl font-bold text-gray-800 flex items-center">
-                            <ShoppingCart className="w-6 h-6 mr-2" />
-                            Carrinho
-                        </h3>
-                        <span className="bg-pink-600 text-white px-3 py-1 rounded-full text-sm font-bold">
-                            {cart.reduce((total, item) => total + item.quantity, 0)}
-                        </span>
+                        <div className="flex items-center">
+                            {showMobileCart && (
+                                <button
+                                    onClick={() => setShowMobileCart(false)}
+                                    className="mr-3 p-2 hover:bg-gray-100 rounded-full lg:hidden"
+                                >
+                                    <ArrowDown className="w-5 h-5 transform rotate-90" />
+                                </button>
+                            )}
+                            <h3 className="text-xl font-bold text-gray-800 flex items-center">
+                                <ShoppingCart className="w-6 h-6 mr-2" />
+                                Carrinho
+                            </h3>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <span className="bg-pink-600 text-white px-3 py-1 rounded-full text-sm font-bold">
+                                {cart.reduce((total, item) => total + item.quantity, 0)}
+                            </span>
+                            {showMobileCart && (
+                                <button
+                                    onClick={() => setShowMobileCart(false)}
+                                    className="text-gray-500 lg:hidden"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {/* Itens do Carrinho */}
@@ -692,15 +721,10 @@ const Sales: React.FC = () => {
             </div>
 
             {/* Floating Action Button para Mobile - Ir para Resumo */}
-            {cart.length > 0 && (
+            {cart.length > 0 && !showMobileCart && (
                 <div className="fixed bottom-6 right-4 left-4 z-50 lg:hidden animate-fade-in-up">
                     <button
-                        onClick={() => {
-                            const summaryElement = document.getElementById('sales-summary');
-                            if (summaryElement) {
-                                summaryElement.scrollIntoView({ behavior: 'smooth' });
-                            }
-                        }}
+                        onClick={() => setShowMobileCart(true)}
                         className="w-full bg-pink-600 text-white shadow-xl rounded-full py-4 px-6 flex items-center justify-between hover:bg-pink-700 transition-all transform hover:scale-[1.02] active:scale-95"
                     >
                         <div className="flex items-center gap-3">
