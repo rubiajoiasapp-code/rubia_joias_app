@@ -33,6 +33,35 @@ import {
 import { todayLocalISO } from '../lib/format';
 import { cacheGet, cacheSet } from '../lib/cache';
 
+// ============ RANKING PERIOD ============
+
+type RankingPeriod = 'mes' | 'trimestre' | 'semestre' | 'ano' | '2anos' | '3anos' | '4anos' | '5anos';
+
+const RANKING_LABELS: Record<RankingPeriod, { label: string; title: string }> = {
+    mes: { label: 'Mensal', title: 'do Mês' },
+    trimestre: { label: 'Trimestral (3 meses)', title: 'do Trimestre' },
+    semestre: { label: 'Semestral (6 meses)', title: 'do Semestre' },
+    ano: { label: 'Anual', title: 'do Ano' },
+    '2anos': { label: '2 Anos', title: 'dos Últimos 2 Anos' },
+    '3anos': { label: '3 Anos', title: 'dos Últimos 3 Anos' },
+    '4anos': { label: '4 Anos', title: 'dos Últimos 4 Anos' },
+    '5anos': { label: '5 Anos', title: 'dos Últimos 5 Anos' }
+};
+
+const periodStartDate = (period: RankingPeriod): Date => {
+    const now = new Date();
+    switch (period) {
+        case 'mes': return new Date(now.getFullYear(), now.getMonth(), 1);
+        case 'trimestre': return new Date(now.getFullYear(), now.getMonth() - 2, 1);
+        case 'semestre': return new Date(now.getFullYear(), now.getMonth() - 5, 1);
+        case 'ano': return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+        case '2anos': return new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+        case '3anos': return new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
+        case '4anos': return new Date(now.getFullYear() - 4, now.getMonth(), now.getDate());
+        case '5anos': return new Date(now.getFullYear() - 5, now.getMonth(), now.getDate());
+    }
+};
+
 // ============ TYPES ============
 
 interface KpiDelta {
@@ -203,6 +232,14 @@ const Dashboard: React.FC = () => {
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const mountedRef = useRef(true);
 
+    // Ranking period selector — quando != 'mes', busca rankings separadamente
+    const [rankingPeriod, setRankingPeriod] = useState<RankingPeriod>('mes');
+    const [rankingOverride, setRankingOverride] = useState<{
+        topClientes: DashboardMetrics['topClientes'];
+        topProdutosLucro: DashboardMetrics['topProdutosLucro'];
+    } | null>(null);
+    const [loadingRanking, setLoadingRanking] = useState(false);
+
     useEffect(() => {
         mountedRef.current = true;
         fetchDashboardData();
@@ -210,6 +247,125 @@ const Dashboard: React.FC = () => {
             mountedRef.current = false;
         };
     }, []);
+
+    // Refetch rankings quando o período muda
+    useEffect(() => {
+        if (rankingPeriod === 'mes') {
+            // Volta a usar os rankings do fetchDashboardData (mês atual)
+            setRankingOverride(null);
+            return;
+        }
+
+        let cancelled = false;
+        setLoadingRanking(true);
+
+        (async () => {
+            try {
+                const start = formatLocalDate(periodStartDate(rankingPeriod));
+
+                const [vendasRes, itensRes] = await Promise.all([
+                    supabase
+                        .from('vendas')
+                        .select('id, valor_total, cliente_id, cliente:clientes(id, nome)')
+                        .gte('data_venda', start),
+                    supabase
+                        .from('itens_venda')
+                        .select(`
+                            venda_id,
+                            quantidade,
+                            valor_unitario,
+                            venda:vendas(data_venda),
+                            produto:produtos(id, descricao, categoria, valor_custo, image_url)
+                        `)
+                        .gte('venda.data_venda', start)
+                        .limit(20000)
+                ]);
+
+                if (cancelled) return;
+                if (vendasRes.error) throw vendasRes.error;
+                if (itensRes.error) throw itensRes.error;
+
+                const vendas = (vendasRes.data || []) as any[];
+                const itens = (itensRes.data || []) as any[];
+
+                // Top clientes
+                const clientesMap = new Map<string, { id: string; nome: string; total: number; compras: number }>();
+                for (const v of vendas) {
+                    const clienteNome = Array.isArray(v.cliente) ? v.cliente[0]?.nome : v.cliente?.nome;
+                    if (!v.cliente_id || !clienteNome) continue;
+                    const entry = clientesMap.get(v.cliente_id) || {
+                        id: v.cliente_id,
+                        nome: clienteNome,
+                        total: 0,
+                        compras: 0
+                    };
+                    entry.total += Number(v.valor_total) || 0;
+                    entry.compras += 1;
+                    clientesMap.set(v.cliente_id, entry);
+                }
+                const topClientes = Array.from(clientesMap.values())
+                    .sort((a, b) => b.total - a.total)
+                    .slice(0, 5);
+
+                // Top produtos por lucro
+                const produtosMap = new Map<string, {
+                    id: string;
+                    descricao: string;
+                    categoria: string;
+                    image_url: string | null;
+                    lucro: number;
+                    receita: number;
+                    qtd: number;
+                }>();
+                for (const item of itens) {
+                    const produto = Array.isArray(item.produto) ? item.produto[0] : item.produto;
+                    if (!produto) continue;
+                    const qtd = Number(item.quantidade) || 0;
+                    const valorUnit = Number(item.valor_unitario) || 0;
+                    const custo = Number(produto.valor_custo) || 0;
+                    const lucroItem = (valorUnit - custo) * qtd;
+                    const receitaItem = valorUnit * qtd;
+                    const existing = produtosMap.get(produto.id) || {
+                        id: produto.id,
+                        descricao: produto.descricao || 'Sem nome',
+                        categoria: produto.categoria || '',
+                        image_url: produto.image_url || null,
+                        lucro: 0,
+                        receita: 0,
+                        qtd: 0
+                    };
+                    existing.lucro += lucroItem;
+                    existing.receita += receitaItem;
+                    existing.qtd += qtd;
+                    produtosMap.set(produto.id, existing);
+                }
+                const topProdutosLucro = Array.from(produtosMap.values())
+                    .map(p => ({
+                        id: p.id,
+                        descricao: p.descricao,
+                        categoria: p.categoria,
+                        image_url: p.image_url,
+                        lucro: p.lucro,
+                        margem: p.receita > 0 ? (p.lucro / p.receita) * 100 : 0,
+                        qtd: p.qtd
+                    }))
+                    .sort((a, b) => b.lucro - a.lucro)
+                    .slice(0, 5);
+
+                if (!cancelled && mountedRef.current) {
+                    setRankingOverride({ topClientes, topProdutosLucro });
+                }
+            } catch (err) {
+                console.error('Erro ao buscar rankings:', err);
+            } finally {
+                if (!cancelled && mountedRef.current) setLoadingRanking(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [rankingPeriod]);
 
     const fetchDashboardData = async () => {
         try {
@@ -723,10 +879,39 @@ const Dashboard: React.FC = () => {
                 </div>
             </div>
 
-            {/* Rankings */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <TopClientsList clientes={metrics.topClientes} />
-                <TopProductsList produtos={metrics.topProdutosLucro} />
+            {/* Rankings com filtro de período */}
+            <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-white rounded-2xl shadow-lg px-5 py-3 gap-3">
+                    <div className="flex items-center gap-2">
+                        <Trophy className="w-4 h-4 text-amber-500" />
+                        <span className="text-sm font-semibold text-gray-700">Rankings</span>
+                        {loadingRanking && (
+                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-pink-600 ml-2"></div>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Período:</span>
+                        <select
+                            value={rankingPeriod}
+                            onChange={(e) => setRankingPeriod(e.target.value as RankingPeriod)}
+                            className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white cursor-pointer"
+                        >
+                            {(Object.keys(RANKING_LABELS) as RankingPeriod[]).map((key) => (
+                                <option key={key} value={key}>{RANKING_LABELS[key].label}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <TopClientsList
+                        clientes={rankingOverride?.topClientes ?? metrics.topClientes}
+                        periodTitle={RANKING_LABELS[rankingPeriod].title}
+                    />
+                    <TopProductsList
+                        produtos={rankingOverride?.topProdutosLucro ?? metrics.topProdutosLucro}
+                        periodTitle={RANKING_LABELS[rankingPeriod].title}
+                    />
+                </div>
             </div>
 
             {/* Heatmap */}
@@ -934,12 +1119,15 @@ const AlertPanel: React.FC<{ metrics: DashboardMetrics }> = ({ metrics }) => {
     );
 };
 
-const TopClientsList: React.FC<{ clientes: DashboardMetrics['topClientes'] }> = ({ clientes }) => (
+const TopClientsList: React.FC<{
+    clientes: DashboardMetrics['topClientes'];
+    periodTitle: string;
+}> = ({ clientes, periodTitle }) => (
     <div className="bg-white rounded-2xl shadow-lg p-6">
         <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-amber-500" />
-                Top Clientes do Mês
+                Top Clientes {periodTitle}
             </h3>
         </div>
         {clientes.length === 0 ? (
@@ -970,14 +1158,17 @@ const TopClientsList: React.FC<{ clientes: DashboardMetrics['topClientes'] }> = 
     </div>
 );
 
-const TopProductsList: React.FC<{ produtos: DashboardMetrics['topProdutosLucro'] }> = ({ produtos }) => (
+const TopProductsList: React.FC<{
+    produtos: DashboardMetrics['topProdutosLucro'];
+    periodTitle: string;
+}> = ({ produtos, periodTitle }) => (
     <div className="bg-white rounded-2xl shadow-lg p-6">
         <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <Flame className="w-5 h-5 text-orange-500" />
                 Top Produtos por Lucro
             </h3>
-            <span className="text-xs text-gray-500">Este mês</span>
+            <span className="text-xs text-gray-500">{periodTitle}</span>
         </div>
         {produtos.length === 0 ? (
             <p className="text-gray-400 text-center py-8 text-sm">Nenhum produto vendido este mês</p>
