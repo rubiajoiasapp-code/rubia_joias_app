@@ -13,8 +13,10 @@ import Settings from './pages/Settings';
 import ExpirationDates from './pages/ExpirationDates';
 import Catalog from './pages/Catalog';
 
-// TEMPORÁRIO: Desabilitar autenticação para desenvolvimento
-const DISABLE_AUTH = false;
+// Desabilita autenticação apenas em desenvolvimento local e se a variável
+// VITE_DISABLE_AUTH=true estiver presente — nunca em produção.
+const DISABLE_AUTH =
+  import.meta.env.DEV && import.meta.env.VITE_DISABLE_AUTH === 'true';
 
 function App() {
   return (
@@ -23,6 +25,7 @@ function App() {
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<Login />} />
           <Route path="/catalogo" element={<Catalog />} />
 
           {/* Protected Routes */}

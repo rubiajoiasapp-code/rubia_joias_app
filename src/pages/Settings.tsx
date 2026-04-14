@@ -59,30 +59,49 @@ const Settings: React.FC = () => {
     };
 
     const handleSave = async () => {
+        // Validação
+        if (settings.ativo) {
+            const phoneDigits = (settings.whatsapp_numero || '').replace(/\D/g, '');
+            if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+                showMessage('error', 'Número de WhatsApp inválido. Use o formato internacional (ex: 5511999999999).');
+                return;
+            }
+            if (!settings.callmebot_api_key.trim()) {
+                showMessage('error', 'Informe a API Key do CallMeBot.');
+                return;
+            }
+        }
+
         setSaving(true);
         setMessage(null);
 
         try {
+            const payload = {
+                whatsapp_numero: settings.whatsapp_numero,
+                callmebot_api_key: settings.callmebot_api_key,
+                horario_envio: settings.horario_envio,
+                dias_antecedencia: settings.dias_antecedencia,
+                ativo: settings.ativo,
+                enviar_finais_semana: settings.enviar_finais_semana,
+            };
+
             if (settings.id) {
                 // Update existing
-                const { error } = await supabase
+                const { data, error } = await supabase
                     .from('configuracoes_notificacoes')
-                    .update({
-                        whatsapp_numero: settings.whatsapp_numero,
-                        callmebot_api_key: settings.callmebot_api_key,
-                        horario_envio: settings.horario_envio,
-                        dias_antecedencia: settings.dias_antecedencia,
-                        ativo: settings.ativo,
-                        enviar_finais_semana: settings.enviar_finais_semana,
-                    })
-                    .eq('id', settings.id);
+                    .update(payload)
+                    .eq('id', settings.id)
+                    .select();
 
                 if (error) throw error;
+                if (!data || data.length === 0) {
+                    throw new Error('Nenhuma configuração foi atualizada (registro pode ter sido removido).');
+                }
             } else {
                 // Insert new
                 const { error } = await supabase
                     .from('configuracoes_notificacoes')
-                    .insert([settings]);
+                    .insert([payload]);
 
                 if (error) throw error;
             }
@@ -91,7 +110,7 @@ const Settings: React.FC = () => {
             fetchSettings();
         } catch (error: any) {
             console.error('Error saving settings:', error);
-            showMessage('error', 'Erro ao salvar configurações: ' + error.message);
+            showMessage('error', 'Erro ao salvar configurações: ' + (error?.message || 'erro desconhecido'));
         } finally {
             setSaving(false);
         }

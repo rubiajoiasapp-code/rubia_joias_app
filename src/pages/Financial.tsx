@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { splitInstallments, roundMoney } from '../lib/format';
 import {
     Plus,
     Trash2,
@@ -66,8 +67,16 @@ const Financial: React.FC = () => {
     const [editingInstallment, setEditingInstallment] = useState<string | null>(null);
     const [editData, setEditData] = useState({ valor_parcela: '', data_vencimento: '' });
 
+    const mountedRef = useRef(true);
+    const submittingRef = useRef(false);
+    const [submitting, setSubmitting] = useState(false);
+
     useEffect(() => {
+        mountedRef.current = true;
         fetchExpenses();
+        return () => {
+            mountedRef.current = false;
+        };
     }, []);
 
     const fetchExpenses = async () => {
@@ -81,7 +90,7 @@ const Financial: React.FC = () => {
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            setExpenses(data || []);
+            if (mountedRef.current) setExpenses(data || []);
         } catch (error) {
             console.error('Error fetching expenses:', error);
         }
@@ -118,7 +127,9 @@ const Financial: React.FC = () => {
     };
 
     const generateProductCode = () => {
-        return Math.floor(10000000 + Math.random() * 90000000).toString();
+        // Base 36 curto derivado de UUID — efetivamente único, sem colisões por Math.random()
+        const rand = crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+        return rand;
     };
 
     const addProductItem = () => {
@@ -158,15 +169,51 @@ const Financial: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (submittingRef.current) return;
+
+        // Validação
+        const nome = supplierName.trim();
+        if (!nome) {
+            alert('Informe o nome do fornecedor.');
+            return;
+        }
+        const valor = parseFloat(totalValue);
+        if (!Number.isFinite(valor) || valor <= 0) {
+            alert('Valor total inválido.');
+            return;
+        }
+        if (!Number.isFinite(installmentsCount) || installmentsCount < 1) {
+            alert('Número de parcelas inválido.');
+            return;
+        }
+        for (const item of productItems) {
+            if (!item.descricao.trim()) {
+                alert('Todos os produtos precisam ter descrição.');
+                return;
+            }
+            if (!Number.isFinite(item.quantidade) || item.quantidade < 1) {
+                alert('Quantidade de produto inválida.');
+                return;
+            }
+            if (!Number.isFinite(item.valor_custo) || item.valor_custo < 0) {
+                alert('Valor de custo inválido.');
+                return;
+            }
+        }
+
+        submittingRef.current = true;
+        setSubmitting(true);
 
         try {
             // 1. Verificar se fornecedor já existe pelo nome
             let supplierId: string;
-            const { data: existingSupplier } = await supabase
+            const { data: existingSupplier, error: lookupError } = await supabase
                 .from('fornecedores')
                 .select('id')
-                .eq('nome', supplierName)
-                .single();
+                .eq('nome', nome)
+                .maybeSingle();
+
+            if (lookupError) throw lookupError;
 
             if (existingSupplier) {
                 supplierId = existingSupplier.id;
@@ -175,7 +222,7 @@ const Financial: React.FC = () => {
                 const { data: newSupplier, error: supplierError } = await supabase
                     .from('fornecedores')
                     .insert([{
-                        nome: supplierName,
+                        nome: nome,
                         cpf_cnpj: supplierCpfCnpj,
                         telefone: supplierPhone,
                         endereco: supplierAddress
@@ -188,12 +235,13 @@ const Financial: React.FC = () => {
             }
 
             // 3. Criar conta a pagar
+            const valorTotal = roundMoney(valor);
             const { data: expenseData, error: expenseError } = await supabase
                 .from('contas_pagar')
                 .insert([{
                     fornecedor_id: supplierId,
                     descricao: description,
-                    valor_total: parseFloat(totalValue),
+                    valor_total: valorTotal,
                     numero_parcelas: installmentsCount,
                     numero_nota_fiscal: invoiceNumber || null,
                     forma_pagamento: paymentMethod
@@ -203,19 +251,23 @@ const Financial: React.FC = () => {
 
             if (expenseError) throw expenseError;
 
-            // 4. Gerar parcelas
-            const valorParcela = parseFloat(totalValue) / installmentsCount;
+            // 4. Gerar parcelas com split exato
+            const valores = splitInstallments(valorTotal, installmentsCount);
             const parcelas = [];
+            const dataBase = new Date();
 
             for (let i = 1; i <= installmentsCount; i++) {
-                const dataVencimento = new Date();
+                const dataVencimento = new Date(dataBase);
                 dataVencimento.setMonth(dataVencimento.getMonth() + i);
+                const yyyy = dataVencimento.getFullYear();
+                const mm = String(dataVencimento.getMonth() + 1).padStart(2, '0');
+                const dd = String(dataVencimento.getDate()).padStart(2, '0');
 
                 parcelas.push({
                     conta_pagar_id: expenseData.id,
                     numero_parcela: i,
-                    valor_parcela: valorParcela,
-                    data_vencimento: dataVencimento.toISOString().split('T')[0],
+                    valor_parcela: valores[i - 1],
+                    data_vencimento: `${yyyy}-${mm}-${dd}`,
                     pago: false
                 });
             }
@@ -233,7 +285,7 @@ const Financial: React.FC = () => {
                     descricao: item.descricao,
                     categoria: item.categoria,
                     valor_custo: item.valor_custo,
-                    valor_venda: item.valor_custo * 2, // Preço de venda sugerido (2x o custo)
+                    valor_venda: roundMoney(item.valor_custo * 2), // Preço de venda sugerido (2x o custo)
                     quantidade_estoque: item.quantidade,
                     image_url: null,
                     conta_pagar_id: expenseData.id // Vincular produto à nota fiscal/fornecedor
@@ -263,7 +315,10 @@ const Financial: React.FC = () => {
             fetchExpenses();
         } catch (error: any) {
             console.error('Error creating expense:', error);
-            alert('Erro ao cadastrar despesa: ' + error.message);
+            alert('Erro ao cadastrar despesa: ' + (error?.message || 'erro desconhecido'));
+        } finally {
+            submittingRef.current = false;
+            if (mountedRef.current) setSubmitting(false);
         }
     };
 
@@ -319,11 +374,20 @@ const Financial: React.FC = () => {
     };
 
     const saveInstallment = async (installmentId: string) => {
+        const valor = parseFloat(editData.valor_parcela);
+        if (!Number.isFinite(valor) || valor < 0) {
+            alert('Valor da parcela inválido.');
+            return;
+        }
+        if (!editData.data_vencimento) {
+            alert('Data de vencimento inválida.');
+            return;
+        }
         try {
             const { error } = await supabase
                 .from('parcelas_pagar')
                 .update({
-                    valor_parcela: parseFloat(editData.valor_parcela),
+                    valor_parcela: roundMoney(valor),
                     data_vencimento: editData.data_vencimento
                 })
                 .eq('id', installmentId);
@@ -519,10 +583,11 @@ const Financial: React.FC = () => {
 
                     <button
                         type="submit"
-                        className="bg-pink-600 text-white font-bold py-2 px-6 rounded-md hover:bg-pink-700 flex items-center"
+                        disabled={submitting}
+                        className="bg-pink-600 text-white font-bold py-2 px-6 rounded-md hover:bg-pink-700 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Plus className="w-5 h-5 mr-2" />
-                        Cadastrar Despesa
+                        {submitting ? 'Cadastrando...' : 'Cadastrar Despesa'}
                     </button>
                 </form>
             </div>

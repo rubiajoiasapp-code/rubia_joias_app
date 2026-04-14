@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { Calendar, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { format, parseISO, isSameMonth, startOfMonth, isBefore, isToday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { todayLocalISO } from '../lib/format';
 
 interface Installment {
     id: string;
@@ -90,7 +91,7 @@ const ExpirationDates: React.FC = () => {
                 .from('parcelas_venda')
                 .update({
                     pago: true,
-                    data_pagamento: new Date().toISOString()
+                    data_pagamento: todayLocalISO()
                 })
                 .eq('id', id);
 

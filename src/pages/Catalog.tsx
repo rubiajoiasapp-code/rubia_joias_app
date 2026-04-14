@@ -28,9 +28,10 @@ const Catalog: React.FC = () => {
 
     const fetchProducts = async () => {
         try {
+            // Explicit column list: NUNCA expor valor_custo, conta_pagar_id etc. no catálogo público.
             const { data, error } = await supabase
                 .from('produtos')
-                .select('*')
+                .select('id, codigo, descricao, categoria, valor_venda, quantidade_estoque, image_url')
                 .eq('show_in_catalog', true)
                 .gt('quantidade_estoque', 0)
                 .order('descricao');
@@ -160,6 +161,7 @@ const Catalog: React.FC = () => {
                                         <img
                                             src={product.image_url}
                                             alt={product.descricao}
+                                            loading="lazy"
                                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300 cursor-pointer"
                                             onClick={() => setZoomedImage(product.image_url)}
                                         />

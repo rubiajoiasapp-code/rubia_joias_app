@@ -76,12 +76,8 @@ const Inventory: React.FC = () => {
             const { data, error } = await supabase
                 .from('produtos')
                 .select('*')
-                .select('*')
                 .order('created_at', { ascending: false });
 
-            // Ensure show_in_catalog is treated as boolean (auto from supabase but good to be safe)
-            // If column doesn't exist yet, it will be undefined, so defaulting to true for local logic
-            // until migration is run might be confusing. Let's assume migration is run.
             if (error) throw error;
             setProducts(data || []);
         } catch (error) {
@@ -92,19 +88,32 @@ const Inventory: React.FC = () => {
     };
 
     const generateProductCode = () => {
-        return Math.floor(10000000 + Math.random() * 90000000).toString();
+        return crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
     };
+
+    const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 
     const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-            setSelectedFile(file);
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setImagePreview(reader.result as string);
-            };
-            reader.readAsDataURL(file);
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            alert('Arquivo inválido: selecione uma imagem (JPG, PNG, WebP).');
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
         }
+        if (file.size > MAX_IMAGE_BYTES) {
+            alert('Imagem muito grande. Tamanho máximo: 5 MB.');
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+        }
+
+        setSelectedFile(file);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setImagePreview(reader.result as string);
+        };
+        reader.readAsDataURL(file);
     };
 
     const uploadImage = async (file: File, productCode: string): Promise<string | null> => {
@@ -176,6 +185,25 @@ const Inventory: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (uploading) return;
+
+        // Validação
+        const descricao = formData.descricao.trim();
+        if (!descricao) {
+            alert('Informe o nome do produto.');
+            return;
+        }
+        const valorVenda = parseFloat(formData.valor_venda);
+        if (!Number.isFinite(valorVenda) || valorVenda < 0) {
+            alert('Valor de venda inválido.');
+            return;
+        }
+        const qtd = parseInt(formData.quantidade_estoque, 10);
+        if (!Number.isFinite(qtd) || qtd < 0) {
+            alert('Quantidade em estoque inválida (não pode ser negativa).');
+            return;
+        }
+
         setUploading(true);
 
         try {
@@ -206,10 +234,10 @@ const Inventory: React.FC = () => {
             }
 
             const productData = {
-                descricao: formData.descricao,
-                categoria: formData.categoria,
-                valor_venda: parseFloat(formData.valor_venda),
-                quantidade_estoque: parseInt(formData.quantidade_estoque),
+                descricao: descricao,
+                categoria: formData.categoria.trim(),
+                valor_venda: valorVenda,
+                quantidade_estoque: qtd,
                 image_url: imageUrl
             };
 
@@ -306,21 +334,34 @@ const Inventory: React.FC = () => {
     };
 
     const handlePrintQR = (productCode: string) => {
-        const printWindow = window.open('', '', 'width=400,height=400');
-        if (printWindow) {
-            const qrElement = document.getElementById(`qr-${productCode}`);
-            if (qrElement) {
-                printWindow.document.write('<html><head><title>QR Code</title></head><body>');
-                printWindow.document.write(qrElement.innerHTML);
-                printWindow.document.write('</body></html>');
-                printWindow.document.close();
-                printWindow.print();
-            }
+        const qrElement = document.getElementById(`qr-${productCode}`);
+        if (!qrElement) {
+            alert('QR Code não encontrado. Tente novamente.');
+            return;
         }
+        const printWindow = window.open('', '', 'width=400,height=400');
+        if (!printWindow) {
+            alert('Pop-up bloqueado. Permita pop-ups para imprimir o QR Code.');
+            return;
+        }
+        printWindow.document.write('<html><head><title>QR Code</title></head><body>');
+        printWindow.document.write(qrElement.innerHTML);
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        printWindow.onafterprint = () => printWindow.close();
+        printWindow.print();
+    };
+
+    const closeOriginModal = () => {
+        setShowOriginModal(false);
+        setSelectedOrigin(null);
     };
 
     const fetchPurchaseOrigin = async (contaPagarId: string) => {
         try {
+            // Reseta antes de buscar para evitar mostrar dados do produto anterior
+            setSelectedOrigin(null);
+
             const { data, error } = await supabase
                 .from('contas_pagar')
                 .select(`
@@ -328,9 +369,13 @@ const Inventory: React.FC = () => {
                     fornecedor:fornecedores(nome, cpf_cnpj, telefone, endereco)
                 `)
                 .eq('id', contaPagarId)
-                .single();
+                .maybeSingle();
 
             if (error) throw error;
+            if (!data) {
+                alert('Origem do produto não encontrada (registro pode ter sido removido).');
+                return;
+            }
 
             setSelectedOrigin(data);
             setShowOriginModal(true);
@@ -380,6 +425,8 @@ const Inventory: React.FC = () => {
 
     const handleBulkCatalogUpdate = async (show: boolean) => {
         if (selectedProds.size === 0) return;
+        const action = show ? 'mostrar no catálogo' : 'ocultar do catálogo';
+        if (!confirm(`Confirma ${action} ${selectedProds.size} produto(s)?`)) return;
         setProcessingBulk(true);
 
         try {
@@ -604,6 +651,8 @@ const Inventory: React.FC = () => {
                             type="number"
                             name="quantidade_estoque"
                             placeholder="0"
+                            min="0"
+                            step="1"
                             value={formData.quantidade_estoque}
                             onChange={handleInputChange}
                             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
@@ -683,6 +732,7 @@ const Inventory: React.FC = () => {
                                                 <img
                                                     src={product.image_url}
                                                     alt={product.descricao}
+                                                    loading="lazy"
                                                     className="w-16 h-16 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity"
                                                     onClick={() => setZoomedImage(product.image_url)}
                                                     title="Clique para ampliar"
@@ -796,7 +846,7 @@ const Inventory: React.FC = () => {
                                     📋 Origem do Produto - Nota Fiscal
                                 </h3>
                                 <button
-                                    onClick={() => setShowOriginModal(false)}
+                                    onClick={closeOriginModal}
                                     className="text-gray-500 hover:text-gray-700"
                                 >
                                     <X className="w-6 h-6" />
@@ -871,7 +921,7 @@ const Inventory: React.FC = () => {
 
                             <div className="p-6 border-t border-gray-200 flex justify-end">
                                 <button
-                                    onClick={() => setShowOriginModal(false)}
+                                    onClick={closeOriginModal}
                                     className="bg-gray-600 text-white px-6 py-2 rounded-md hover:bg-gray-700"
                                 >
                                     Fechar

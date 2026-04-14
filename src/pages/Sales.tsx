@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { ShoppingCart, Search, QrCode, Package as PackageIcon, Trash2, CreditCard, Camera, X, ArrowDown } from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import { nowLocalISO, todayLocalISO, splitInstallments, roundMoney } from '../lib/format';
 
 interface Product {
     id: string;
@@ -37,28 +38,35 @@ const Sales: React.FC = () => {
     const [loading, setLoading] = useState(true);
 
     const [processing, setProcessing] = useState(false);
+    const processingRef = useRef(false);
+    const mountedRef = useRef(true);
     const [showMobileCart, setShowMobileCart] = useState(false);
 
     useEffect(() => {
+        mountedRef.current = true;
         fetchProducts();
         fetchClients();
+        return () => {
+            mountedRef.current = false;
+        };
     }, []);
 
     const fetchProducts = async () => {
         try {
             const { data, error } = await supabase
                 .from('produtos')
-                .select('*')
+                .select('id, codigo, descricao, categoria, valor_venda, quantidade_estoque, image_url')
                 .gt('quantidade_estoque', 0)
                 .order('descricao');
 
             if (error) throw error;
+            if (!mountedRef.current) return;
             setProducts(data || []);
         } catch (error) {
             console.error('Error fetching products:', error);
-            alert('Erro ao carregar produtos.');
+            if (mountedRef.current) alert('Erro ao carregar produtos.');
         } finally {
-            setLoading(false);
+            if (mountedRef.current) setLoading(false);
         }
     };
 
@@ -70,6 +78,7 @@ const Sales: React.FC = () => {
                 .order('nome');
 
             if (error) throw error;
+            if (!mountedRef.current) return;
             setClients(data || []);
         } catch (error) {
             console.error('Error fetching clients:', error);
@@ -129,9 +138,10 @@ const Sales: React.FC = () => {
     };
 
     const searchByQRCode = () => {
-        if (!qrCode.trim()) return;
+        const needle = qrCode.trim();
+        if (!needle) return;
 
-        const product = products.find(p => p.codigo === qrCode.trim());
+        const product = products.find(p => (p.codigo || '').trim() === needle);
 
         if (product) {
             addToCart(product);
@@ -143,16 +153,16 @@ const Sales: React.FC = () => {
 
     const handleScan = (result: any) => {
         if (result && result[0]?.rawValue) {
-            const code = result[0].rawValue;
-            const product = products.find(p => p.codigo === code);
+            const code = String(result[0].rawValue).trim();
+            const product = products.find(p => (p.codigo || '').trim() === code);
 
             if (product) {
                 addToCart(product);
                 setShowScanner(false);
                 alert(`✅ ${product.descricao} adicionado ao carrinho!`);
             } else {
-                alert('Produto não encontrado com este código QR!');
                 setShowScanner(false);
+                alert('Produto não encontrado com este código QR!');
             }
         }
     };
@@ -167,6 +177,8 @@ const Sales: React.FC = () => {
     );
 
     const handleFinalizeSale = async () => {
+        if (processingRef.current) return;
+
         if (cart.length === 0) {
             alert('Adicione produtos ao carrinho!');
             return;
@@ -177,19 +189,36 @@ const Sales: React.FC = () => {
             return;
         }
 
+        if (discount < 0 || discount > 100) {
+            alert('Desconto inválido.');
+            return;
+        }
+
+        const total = roundMoney(calculateTotal());
+        const finalTotal = roundMoney(calculateFinalTotal());
+        const discountAmount = roundMoney(total - finalTotal);
+
+        if (paymentMethod === 'FIADO') {
+            if (!Number.isFinite(installments) || installments < 1) {
+                alert('Número de parcelas inválido.');
+                return;
+            }
+            if (downPayment < 0 || downPayment > total) {
+                alert('Entrada inválida (não pode ser negativa ou maior que o total).');
+                return;
+            }
+        }
+
+        processingRef.current = true;
         setProcessing(true);
 
         try {
-            const total = calculateTotal();
-            const finalTotal = calculateFinalTotal();
-            const discountAmount = total - finalTotal;
-
             // 1. Criar a venda
             const { data: saleData, error: saleError } = await supabase
                 .from('vendas')
                 .insert([{
                     cliente_id: selectedClient,
-                    data_venda: new Date().toISOString(),
+                    data_venda: nowLocalISO(),
                     valor_total: finalTotal,
                     forma_pagamento: paymentMethod,
                     desconto_percentual: discount > 0 ? discount : null,
@@ -215,38 +244,53 @@ const Sales: React.FC = () => {
             if (itemsError) throw itemsError;
 
             // 3. SEMPRE criar parcelas para rastreabilidade no crediário
-            const dataVenda = new Date();
+            const hojeISO = todayLocalISO();
+            const agoraISO = nowLocalISO();
 
             if (paymentMethod === 'FIADO') {
                 // Venda parcelada - múltiplas parcelas não pagas
-                const parcelas = [];
+                type ParcelaInsert = {
+                    venda_id: string;
+                    numero_parcela: number;
+                    valor_parcela: number;
+                    data_vencimento: string;
+                    data_pagamento?: string;
+                    pago: boolean;
+                    observacoes?: string;
+                };
+                const parcelas: ParcelaInsert[] = [];
 
                 // Se houver entrada, criar parcela paga (número 0)
-                if (downPayment > 0) {
+                const entrada = roundMoney(downPayment);
+                if (entrada > 0) {
                     parcelas.push({
                         venda_id: saleData.id,
                         numero_parcela: 0,
-                        valor_parcela: downPayment,
-                        data_vencimento: dataVenda.toISOString().split('T')[0],
-                        data_pagamento: dataVenda.toISOString(),
+                        valor_parcela: entrada,
+                        data_vencimento: hojeISO,
+                        data_pagamento: hojeISO,
                         pago: true,
                         observacoes: 'Entrada'
                     });
                 }
 
-                // Criar parcelas do saldo restante
-                const saldoParcelar = total - downPayment;
-                const valorParcela = saldoParcelar / installments;
+                // Criar parcelas do saldo restante com split sem perda de centavos
+                const saldoParcelar = roundMoney(total - entrada);
+                const valores = splitInstallments(saldoParcelar, installments);
 
+                const dataBase = new Date();
                 for (let i = 1; i <= installments; i++) {
-                    const dataVencimento = new Date(dataVenda);
+                    const dataVencimento = new Date(dataBase);
                     dataVencimento.setMonth(dataVencimento.getMonth() + i);
+                    const yyyy = dataVencimento.getFullYear();
+                    const mm = String(dataVencimento.getMonth() + 1).padStart(2, '0');
+                    const dd = String(dataVencimento.getDate()).padStart(2, '0');
 
                     parcelas.push({
                         venda_id: saleData.id,
                         numero_parcela: i,
-                        valor_parcela: valorParcela,
-                        data_vencimento: dataVencimento.toISOString().split('T')[0],
+                        valor_parcela: valores[i - 1],
+                        data_vencimento: `${yyyy}-${mm}-${dd}`,
                         pago: false
                     });
                 }
@@ -272,8 +316,8 @@ const Sales: React.FC = () => {
                         venda_id: saleData.id,
                         numero_parcela: 1,
                         valor_parcela: finalTotal,
-                        data_vencimento: dataVenda.toISOString().split('T')[0],
-                        data_pagamento: dataVenda.toISOString(),
+                        data_vencimento: hojeISO,
+                        data_pagamento: hojeISO,
                         pago: true,
                         observacoes: `Pagamento à vista - ${metodoPagamento}`
                     }]);
@@ -282,21 +326,40 @@ const Sales: React.FC = () => {
                     console.error('Erro ao criar registro no crediário:', parcelasError);
                     alert('⚠️ Venda criada, mas houve erro ao registrar no crediário.');
                 }
+
+                // Ignora agoraISO (não usado) - mantém função importada para consistência
+                void agoraISO;
             }
 
-            // 4. Atualizar o estoque
+            // 4. Atualizar o estoque com guarda pessimista contra race condition:
+            //    o update só acontece se o estoque atual for >= quantidade vendida.
+            //    Se outro terminal já debitou, a linha não é afetada e avisamos.
+            const stockFailures: string[] = [];
             for (const item of cart) {
-                const { error: stockError } = await supabase
+                const { data: updated, error: stockError } = await supabase
                     .from('produtos')
                     .update({
                         quantidade_estoque: item.quantidade_estoque - item.quantity
                     })
-                    .eq('id', item.id);
+                    .eq('id', item.id)
+                    .gte('quantidade_estoque', item.quantity)
+                    .select('id');
 
                 if (stockError) throw stockError;
+                if (!updated || updated.length === 0) {
+                    stockFailures.push(item.descricao);
+                }
             }
 
-            alert('✅ Venda finalizada com sucesso!');
+            if (stockFailures.length > 0) {
+                alert(
+                    '⚠️ Venda registrada, mas o estoque dos itens abaixo não pôde ser baixado ' +
+                    '(estoque insuficiente no momento da finalização). Verifique manualmente:\n\n' +
+                    stockFailures.join('\n')
+                );
+            } else {
+                alert('✅ Venda finalizada com sucesso!');
+            }
 
             // Limpar carrinho e recarregar produtos
             setCart([]);
@@ -308,9 +371,10 @@ const Sales: React.FC = () => {
             fetchProducts();
         } catch (error: any) {
             console.error('Error finalizing sale:', error);
-            alert('Erro ao finalizar venda: ' + error.message);
+            alert('Erro ao finalizar venda: ' + (error?.message || 'erro desconhecido'));
         } finally {
-            setProcessing(false);
+            processingRef.current = false;
+            if (mountedRef.current) setProcessing(false);
         }
     };
 
@@ -464,8 +528,12 @@ const Sales: React.FC = () => {
                                         <input
                                             type="number"
                                             min="1"
+                                            step="1"
                                             value={item.quantity}
-                                            onChange={(e) => updateQuantity(item.id, parseInt(e.target.value))}
+                                            onChange={(e) => {
+                                                const n = parseInt(e.target.value, 10);
+                                                if (Number.isFinite(n)) updateQuantity(item.id, n);
+                                            }}
                                             className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
                                         />
                                         <button

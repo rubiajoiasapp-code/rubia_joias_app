@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import SaleReceipt from '../components/SaleReceipt';
+import { todayLocalISO, splitInstallments, roundMoney, normalizePhone } from '../lib/format';
 
 interface Sale {
     id: string;
@@ -26,8 +27,21 @@ interface Installment {
     observacoes: string | null;
 }
 
+interface SaleItem {
+    id: string;
+    quantidade: number;
+    valor_unitario: number;
+    subtotal?: number;
+    produto: {
+        descricao: string;
+        categoria: string | null;
+        codigo: string | null;
+    } | null;
+}
+
 interface SaleWithInstallments extends Sale {
     parcelas: Installment[];
+    itens: SaleItem[];
     totalPago: number;
     totalPendente: number;
 }
@@ -49,9 +63,25 @@ const Credit: React.FC = () => {
         pago: false
     });
 
+    const mountedRef = useRef(true);
+
     useEffect(() => {
+        mountedRef.current = true;
         fetchSalesWithInstallments();
+        return () => {
+            mountedRef.current = false;
+        };
     }, []);
+
+    const closeRenegotiation = () => {
+        setRenegotiating(null);
+        setRenegotiationForm({ downPayment: 0, newInstallments: 3 });
+    };
+
+    const closeEditing = () => {
+        setEditingInstallment(null);
+        setEditForm({ valor_parcela: '', data_vencimento: '', pago: false });
+    };
 
     const fetchSalesWithInstallments = async () => {
         try {
@@ -74,32 +104,56 @@ const Credit: React.FC = () => {
             const salesWithInstallments: SaleWithInstallments[] = [];
 
             for (const sale of salesData) {
-                const { data: installmentsData, error: installmentsError } = await supabase
-                    .from('parcelas_venda')
-                    .select('*')
-                    .eq('venda_id', sale.id)
-                    .order('numero_parcela');
+                const [installmentsRes, itensRes] = await Promise.all([
+                    supabase
+                        .from('parcelas_venda')
+                        .select('*')
+                        .eq('venda_id', sale.id)
+                        .order('numero_parcela'),
+                    supabase
+                        .from('itens_venda')
+                        .select(`
+                            id,
+                            quantidade,
+                            valor_unitario,
+                            subtotal,
+                            produto:produtos(descricao, categoria, codigo)
+                        `)
+                        .eq('venda_id', sale.id)
+                ]);
 
-                if (installmentsError) throw installmentsError;
+                if (installmentsRes.error) throw installmentsRes.error;
+                if (itensRes.error) throw itensRes.error;
 
-                const parcelas = installmentsData || [];
+                const parcelas = installmentsRes.data || [];
                 const totalPago = parcelas.filter(p => p.pago).reduce((sum, p) => sum + Number(p.valor_parcela), 0);
                 const totalPendente = parcelas.filter(p => !p.pago).reduce((sum, p) => sum + Number(p.valor_parcela), 0);
+
+                // Normaliza shape do produto (Supabase pode retornar array ou objeto dependendo da relação)
+                const itens: SaleItem[] = (itensRes.data || []).map((raw: any) => ({
+                    id: raw.id,
+                    quantidade: Number(raw.quantidade),
+                    valor_unitario: Number(raw.valor_unitario),
+                    subtotal: raw.subtotal != null ? Number(raw.subtotal) : undefined,
+                    produto: Array.isArray(raw.produto) ? raw.produto[0] || null : raw.produto
+                }));
 
                 salesWithInstallments.push({
                     ...sale,
                     parcelas,
+                    itens,
                     totalPago,
                     totalPendente
                 });
             }
 
+            if (!mountedRef.current) return;
             setSales(salesWithInstallments);
         } catch (error) {
             console.error('Erro ao buscar vendas parceladas:', error);
-            alert('Erro ao carregar vendas parceladas');
+            if (mountedRef.current) alert('Erro ao carregar vendas parceladas');
         } finally {
-            setLoading(false);
+            if (mountedRef.current) setLoading(false);
         }
     };
 
@@ -115,21 +169,31 @@ const Credit: React.FC = () => {
     const handleSaveInstallment = async () => {
         if (!editingInstallment) return;
 
+        const valor = parseFloat(editForm.valor_parcela);
+        if (!Number.isFinite(valor) || valor < 0) {
+            alert('Valor da parcela inválido.');
+            return;
+        }
+        if (!editForm.data_vencimento) {
+            alert('Data de vencimento inválida.');
+            return;
+        }
+
         try {
             const { error } = await supabase
                 .from('parcelas_venda')
                 .update({
-                    valor_parcela: parseFloat(editForm.valor_parcela),
+                    valor_parcela: roundMoney(valor),
                     data_vencimento: editForm.data_vencimento,
                     pago: editForm.pago,
-                    data_pagamento: editForm.pago ? new Date().toLocaleDateString('en-CA') : null
+                    data_pagamento: editForm.pago ? todayLocalISO() : null
                 })
                 .eq('id', editingInstallment.id);
 
             if (error) throw error;
 
             alert('✅ Parcela atualizada com sucesso!');
-            setEditingInstallment(null);
+            closeEditing();
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao atualizar parcela:', error);
@@ -143,7 +207,7 @@ const Credit: React.FC = () => {
                 .from('parcelas_venda')
                 .update({
                     pago: !installment.pago,
-                    data_pagamento: !installment.pago ? new Date().toLocaleDateString('en-CA') : null
+                    data_pagamento: !installment.pago ? todayLocalISO() : null
                 })
                 .eq('id', installment.id);
 
@@ -276,7 +340,7 @@ const Credit: React.FC = () => {
                 .single();
 
             if (clientData?.telefone) {
-                const phone = clientData.telefone.replace(/\D/g, '');
+                const phone = normalizePhone(clientData.telefone);
                 const message = encodeURIComponent(
                     `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}. A imagem foi baixada automaticamente, por favor anexe na conversa.`
                 );
@@ -298,26 +362,38 @@ const Credit: React.FC = () => {
     const handleRenegotiate = async () => {
         if (!renegotiating) return;
 
-        const { downPayment, newInstallments } = renegotiationForm;
-        const saldoPendente = renegotiating.totalPendente;
+        const downPayment = roundMoney(renegotiationForm.downPayment);
+        const newInstallments = renegotiationForm.newInstallments;
+        const saldoPendente = roundMoney(renegotiating.totalPendente);
 
+        if (!Number.isFinite(newInstallments) || newInstallments < 1) {
+            alert('⚠️ Número de parcelas inválido.');
+            return;
+        }
+        if (downPayment < 0) {
+            alert('⚠️ Entrada não pode ser negativa.');
+            return;
+        }
         if (downPayment > saldoPendente) {
             alert('⚠️ Entrada não pode ser maior que o saldo pendente!');
             return;
         }
 
+        const novoSaldo = roundMoney(saldoPendente - downPayment);
+        const valores = splitInstallments(novoSaldo, newInstallments);
+
         const confirmRenegotiate = window.confirm(
             `Confirma renegociação da venda?\n\n` +
             `Saldo pendente: R$ ${saldoPendente.toFixed(2)}\n` +
             `Entrada: R$ ${downPayment.toFixed(2)}\n` +
-            `Novas parcelas: ${newInstallments}x de R$ ${((saldoPendente - downPayment) / newInstallments).toFixed(2)}\n\n` +
+            `Novas parcelas: ${newInstallments}x de ~R$ ${(valores[0] || 0).toFixed(2)}\n\n` +
             `As parcelas antigas não pagas serão canceladas.`
         );
 
         if (!confirmRenegotiate) return;
 
         try {
-            const today = new Date().toLocaleDateString('en-CA');
+            const today = todayLocalISO();
             const dataRenegociacao = new Date().toLocaleDateString('pt-BR');
 
             // 1. Cancelar parcelas antigas não pagas
@@ -333,7 +409,9 @@ const Credit: React.FC = () => {
 
             if (cancelError) throw cancelError;
 
-            // 2. Criar parcela de entrada (se houver)
+            // 2. Criar parcela de entrada (se houver).
+            //    Mantemos o offset 9000 para não colidir com a numeração original 1..N
+            //    (e evitar duplicar numero_parcela=0 caso a venda original já tenha tido entrada).
             if (downPayment > 0) {
                 const { error: entradaError } = await supabase
                     .from('parcelas_venda')
@@ -350,20 +428,21 @@ const Credit: React.FC = () => {
                 if (entradaError) throw entradaError;
             }
 
-            // 3. Criar novas parcelas
-            const novoSaldo = saldoPendente - downPayment;
-            const valorParcela = novoSaldo / newInstallments;
+            // 3. Criar novas parcelas com split sem perda de centavos
             const novasParcelas = [];
-
+            const dataBase = new Date();
             for (let i = 1; i <= newInstallments; i++) {
-                const dataVencimento = new Date();
+                const dataVencimento = new Date(dataBase);
                 dataVencimento.setMonth(dataVencimento.getMonth() + i);
+                const yyyy = dataVencimento.getFullYear();
+                const mm = String(dataVencimento.getMonth() + 1).padStart(2, '0');
+                const dd = String(dataVencimento.getDate()).padStart(2, '0');
 
                 novasParcelas.push({
                     venda_id: renegotiating.id,
                     numero_parcela: 9000 + i,
-                    valor_parcela: valorParcela,
-                    data_vencimento: dataVencimento.toLocaleDateString('en-CA'),
+                    valor_parcela: valores[i - 1],
+                    data_vencimento: `${yyyy}-${mm}-${dd}`,
                     pago: false,
                     observacoes: `Renegociação ${dataRenegociacao}`
                 });
@@ -376,18 +455,17 @@ const Credit: React.FC = () => {
             if (parcelasError) throw parcelasError;
 
             alert('✅ Venda renegociada com sucesso!');
-            setRenegotiating(null);
-            setRenegotiationForm({ downPayment: 0, newInstallments: 3 });
+            closeRenegotiation();
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao renegociar venda:', error);
             alert('Erro ao renegociar venda: ' + error.message);
         }
     };
+
     const isOverdue = (installment: Installment) => {
         if (installment.pago) return false;
-        const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
-        return installment.data_vencimento < today;
+        return installment.data_vencimento < todayLocalISO();
     };
 
 
@@ -638,7 +716,7 @@ const Credit: React.FC = () => {
                                                                 Salvar
                                                             </button>
                                                             <button
-                                                                onClick={() => setEditingInstallment(null)}
+                                                                onClick={closeEditing}
                                                                 className="bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-400"
                                                             >
                                                                 Cancelar
@@ -721,7 +799,7 @@ const Credit: React.FC = () => {
                                     Renegociar Venda
                                 </h3>
                                 <button
-                                    onClick={() => setRenegotiating(null)}
+                                    onClick={closeRenegotiation}
                                     className="text-gray-400 hover:text-gray-600"
                                 >
                                     <X className="w-6 h-6" />
@@ -824,7 +902,7 @@ const Credit: React.FC = () => {
 
                         <div className="p-6 bg-gray-50 flex gap-3 rounded-b-2xl shrink-0">
                             <button
-                                onClick={() => setRenegotiating(null)}
+                                onClick={closeRenegotiation}
                                 className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-400 transition-colors"
                             >
                                 Cancelar

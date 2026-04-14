@@ -1,13 +1,29 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight } from 'lucide-react';
+
+const translateAuthError = (msg?: string): string => {
+    if (!msg) return 'Erro desconhecido';
+    const m = msg.toLowerCase();
+    if (m.includes('invalid login') || m.includes('invalid credentials')) return 'Email ou senha incorretos';
+    if (m.includes('user already registered') || m.includes('already registered')) return 'Este email já está cadastrado';
+    if (m.includes('email rate limit')) return 'Muitas tentativas. Tente novamente em alguns minutos.';
+    if (m.includes('password') && m.includes('short')) return 'A senha é muito curta (mínimo 6 caracteres)';
+    if (m.includes('email not confirmed')) return 'Confirme seu email antes de fazer login';
+    if (m.includes('failed to fetch')) return 'Erro de conexão. Verifique sua internet.';
+    return msg;
+};
 
 const Login: React.FC = () => {
     const navigate = useNavigate();
     const { signIn, signUp, resetPassword } = useAuth();
 
-    const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
+    const initialMode: 'login' | 'signup' | 'forgot' | 'reset' =
+        typeof window !== 'undefined' && window.location.pathname === '/reset-password'
+            ? 'reset'
+            : 'login';
+    const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>(initialMode);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [name, setName] = useState('');
@@ -15,6 +31,12 @@ const Login: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
+
+    // Limpa mensagem e campo de senha ao trocar de modo.
+    useEffect(() => {
+        setMessage('');
+        setPassword('');
+    }, [mode]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -25,14 +47,14 @@ const Login: React.FC = () => {
             if (mode === 'login') {
                 const { error } = await signIn(email, password, rememberMe);
                 if (error) {
-                    setMessage('Email ou senha incorretos');
+                    setMessage(translateAuthError(error.message));
                 } else {
                     navigate('/');
                 }
             } else if (mode === 'signup') {
                 const { error } = await signUp(email, password, name);
                 if (error) {
-                    setMessage('Erro ao criar conta: ' + error.message);
+                    setMessage('Erro ao criar conta: ' + translateAuthError(error.message));
                 } else {
                     setMessage('✅ Conta criada! Verifique seu email.');
                     setTimeout(() => setMode('login'), 2000);
@@ -40,13 +62,17 @@ const Login: React.FC = () => {
             } else if (mode === 'forgot') {
                 const { error } = await resetPassword(email);
                 if (error) {
-                    setMessage('Erro ao enviar email: ' + error.message);
+                    setMessage('Erro ao enviar email: ' + translateAuthError(error.message));
                 } else {
                     setMessage('✅ Link de recuperação enviado para seu email!');
                 }
+            } else if (mode === 'reset') {
+                // Placeholder: o link do email inclui um token na URL que o Supabase
+                // processa automaticamente. Aqui só confirmamos que o fluxo existe.
+                setMessage('Acesse o link enviado para seu email para redefinir a senha.');
             }
         } catch (error: any) {
-            setMessage('Erro: ' + error.message);
+            setMessage('Erro: ' + translateAuthError(error.message));
         } finally {
             setLoading(false);
         }

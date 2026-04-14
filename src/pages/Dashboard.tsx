@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import {
     TrendingUp,
@@ -13,6 +13,7 @@ import {
     ArrowDownRight,
     Box
 } from 'lucide-react';
+import { todayLocalISO } from '../lib/format';
 
 interface DashboardMetrics {
     vendasHoje: number;
@@ -20,6 +21,8 @@ interface DashboardMetrics {
     contasPagar: number;
     produtosEstoque: number;
     clientesTotal: number;
+    novosMes: number;
+    clientesAtivos: number;
     vendasRecentes: any[];
     produtosBaixoEstoque: any[];
     receitaMensal: { mes: string; valor: number }[];
@@ -31,6 +34,13 @@ interface DashboardMetrics {
     } | null;
 }
 
+const formatLocalDate = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+};
+
 const Dashboard: React.FC = () => {
     const [metrics, setMetrics] = useState<DashboardMetrics>({
         vendasHoje: 0,
@@ -38,21 +48,31 @@ const Dashboard: React.FC = () => {
         contasPagar: 0,
         produtosEstoque: 0,
         clientesTotal: 0,
+        novosMes: 0,
+        clientesAtivos: 0,
         vendasRecentes: [],
         produtosBaixoEstoque: [],
         receitaMensal: [],
         produtoMaisVendido: null
     });
     const [loading, setLoading] = useState(true);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const mountedRef = useRef(true);
 
     useEffect(() => {
+        mountedRef.current = true;
         fetchDashboardData();
+        return () => {
+            mountedRef.current = false;
+        };
     }, []);
 
     const fetchDashboardData = async () => {
         try {
-            const hoje = new Date().toISOString().split('T')[0];
-            const primeiroDiaMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+            const hoje = todayLocalISO();
+            const now = new Date();
+            const primeiroDiaMes = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
+            const trintaDiasAtras = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30));
 
             // Vendas de hoje
             const { data: vendasHoje } = await supabase
@@ -88,6 +108,23 @@ const Dashboard: React.FC = () => {
                 .from('clientes')
                 .select('*', { count: 'exact', head: true });
 
+            // Novos clientes este mês (contagem real)
+            const { count: novosMesCount } = await supabase
+                .from('clientes')
+                .select('*', { count: 'exact', head: true })
+                .gte('created_at', primeiroDiaMes);
+
+            // Clientes ativos (distintos) nos últimos 30 dias
+            const { data: vendasRecentesDist } = await supabase
+                .from('vendas')
+                .select('cliente_id')
+                .gte('data_venda', trintaDiasAtras);
+            const clientesAtivosSet = new Set<string>();
+            (vendasRecentesDist || []).forEach((v: { cliente_id: string | null }) => {
+                if (v.cliente_id) clientesAtivosSet.add(v.cliente_id);
+            });
+            const clientesAtivosCount = clientesAtivosSet.size;
+
             // Vendas recentes (últimas 5)
             const { data: vendasRecentes } = await supabase
                 .from('vendas')
@@ -106,23 +143,22 @@ const Dashboard: React.FC = () => {
                 .order('quantidade_estoque', { ascending: true })
                 .limit(5);
 
-            // Receita mensal (últimos 6 meses)
+            // Receita mensal (últimos 6 meses, timezone local)
             const receitaMensal = [];
             for (let i = 5; i >= 0; i--) {
-                const data = new Date();
-                data.setMonth(data.getMonth() - i);
-                const mesInicio = new Date(data.getFullYear(), data.getMonth(), 1).toISOString().split('T')[0];
-                const mesFim = new Date(data.getFullYear(), data.getMonth() + 1, 0).toISOString().split('T')[0];
+                const ref = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const mesInicio = formatLocalDate(new Date(ref.getFullYear(), ref.getMonth(), 1));
+                const mesFim = formatLocalDate(new Date(ref.getFullYear(), ref.getMonth() + 1, 0));
 
                 const { data: vendas } = await supabase
                     .from('vendas')
                     .select('valor_total')
                     .gte('data_venda', mesInicio)
-                    .lte('data_venda', mesFim);
+                    .lte('data_venda', mesFim + 'T23:59:59');
 
                 const total = vendas?.reduce((sum, v) => sum + Number(v.valor_total), 0) || 0;
                 receitaMensal.push({
-                    mes: data.toLocaleDateString('pt-BR', { month: 'short' }),
+                    mes: ref.toLocaleDateString('pt-BR', { month: 'short' }),
                     valor: total
                 });
             }
@@ -165,21 +201,25 @@ const Dashboard: React.FC = () => {
                 produtoMaisVendido = maisVendido || null;
             }
 
+            if (!mountedRef.current) return;
             setMetrics({
                 vendasHoje: totalHoje,
                 vendasMes: totalMes,
                 contasPagar: totalPagar,
                 produtosEstoque: produtosCount || 0,
                 clientesTotal: clientesCount || 0,
+                novosMes: novosMesCount || 0,
+                clientesAtivos: clientesAtivosCount,
                 vendasRecentes: vendasRecentes || [],
                 produtosBaixoEstoque: produtosBaixoEstoque || [],
                 receitaMensal,
                 produtoMaisVendido: produtoMaisVendido as any
             });
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error fetching dashboard data:', error);
+            if (mountedRef.current) setErrorMsg('Não foi possível carregar os dados. ' + (error?.message || ''));
         } finally {
-            setLoading(false);
+            if (mountedRef.current) setLoading(false);
         }
     };
 
@@ -214,6 +254,23 @@ const Dashboard: React.FC = () => {
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600 mx-auto mb-4"></div>
                     <p className="text-gray-600">Carregando dashboard...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (errorMsg) {
+        return (
+            <div className="flex items-center justify-center h-96">
+                <div className="text-center max-w-md">
+                    <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                    <p className="text-gray-700 mb-4">{errorMsg}</p>
+                    <button
+                        onClick={() => { setErrorMsg(null); setLoading(true); fetchDashboardData(); }}
+                        className="bg-pink-600 text-white px-4 py-2 rounded-md hover:bg-pink-700"
+                    >
+                        Tentar novamente
+                    </button>
                 </div>
             </div>
         );
@@ -341,11 +398,11 @@ const Dashboard: React.FC = () => {
                     <div className="space-y-3 mt-8">
                         <div className="flex items-center justify-between text-sm bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-3">
                             <span>Novos este mês</span>
-                            <span className="font-bold">+8</span>
+                            <span className="font-bold">+{metrics.novosMes}</span>
                         </div>
                         <div className="flex items-center justify-between text-sm bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-3">
-                            <span>Ativos</span>
-                            <span className="font-bold">{Math.floor(metrics.clientesTotal * 0.7)}</span>
+                            <span>Ativos (últimos 30 dias)</span>
+                            <span className="font-bold">{metrics.clientesAtivos}</span>
                         </div>
                     </div>
                 </div>

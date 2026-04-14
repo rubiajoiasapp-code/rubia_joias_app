@@ -1,5 +1,4 @@
 import React from 'react';
-import { Calendar, DollarSign, User, Check, X, CreditCard } from 'lucide-react';
 
 interface Installment {
     id: string;
@@ -10,6 +9,18 @@ interface Installment {
     data_pagamento: string | null;
     pago: boolean;
     observacoes: string | null;
+}
+
+interface SaleItem {
+    id: string;
+    quantidade: number;
+    valor_unitario: number;
+    subtotal?: number;
+    produto: {
+        descricao: string;
+        categoria: string | null;
+        codigo: string | null;
+    } | null;
 }
 
 interface Sale {
@@ -25,6 +36,7 @@ interface Sale {
 
 interface SaleWithInstallments extends Sale {
     parcelas: Installment[];
+    itens: SaleItem[];
     totalPago: number;
     totalPendente: number;
 }
@@ -32,6 +44,26 @@ interface SaleWithInstallments extends Sale {
 interface SaleReceiptProps {
     sale: SaleWithInstallments;
 }
+
+// Paleta da marca
+const COLORS = {
+    primary: '#EC4899',
+    primaryDark: '#BE185D',
+    primaryLight: '#FCE7F3',
+    text: '#111827',
+    textMuted: '#6B7280',
+    textFaint: '#9CA3AF',
+    border: '#E5E7EB',
+    bgSoft: '#F9FAFB',
+    bgAlt: '#FAF5FF',
+    success: '#059669',
+    successBg: '#D1FAE5',
+    danger: '#DC2626',
+    dangerBg: '#FEE2E2',
+    warningBg: '#FEF3C7',
+    warningBorder: '#F59E0B',
+    warningText: '#92400E'
+};
 
 const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
     const formatDate = (dateString: string) => {
@@ -54,194 +86,406 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
 
     const isAVista = sale.forma_pagamento !== 'FIADO';
 
+    const itemSubtotal = (item: SaleItem): number => {
+        if (typeof item.subtotal === 'number') return item.subtotal;
+        return item.quantidade * item.valor_unitario;
+    };
+
+    const produtosSubtotal = sale.itens.reduce((sum, i) => sum + itemSubtotal(i), 0);
+    const totalItens = sale.itens.reduce((sum, i) => sum + i.quantidade, 0);
+    const possuiDesconto = Math.abs(produtosSubtotal - sale.valor_total) > 0.01 && produtosSubtotal > 0;
+
     return (
         <div
             id={`receipt-${sale.id}`}
             style={{
-                width: '600px',
+                width: '640px',
                 backgroundColor: '#ffffff',
-                padding: '40px',
-                fontFamily: 'Arial, sans-serif',
-                color: '#1F2937',
+                padding: '0',
+                fontFamily: '"Helvetica Neue", Arial, sans-serif',
+                color: COLORS.text,
                 position: 'absolute',
                 left: '-9999px',
-                top: '0'
+                top: '0',
+                borderRadius: '16px',
+                overflow: 'hidden',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
             }}
         >
-            {/* Cabeçalho com Logo */}
-            <div style={{ textAlign: 'center', marginBottom: '32px', borderBottom: '3px solid #EC4899', paddingBottom: '24px' }}>
-                <img
-                    src="/logo.png"
-                    alt="Rubia Joias"
-                    style={{ height: '80px', marginBottom: '16px' }}
-                />
-                <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: '#EC4899', margin: '0' }}>
-                    Rubia Joias
-                </h1>
-                <h2 style={{ fontSize: '20px', fontWeight: '600', color: '#6B7280', margin: '8px 0 0 0' }}>
-                    RESUMO DE VENDA
-                </h2>
+            {/* Header com faixa colorida */}
+            <div style={{
+                background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.primaryDark} 100%)`,
+                padding: '32px 40px',
+                color: '#ffffff',
+                position: 'relative'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <img
+                            src="/logo.png"
+                            alt="Rubia Joias"
+                            style={{ height: '64px', backgroundColor: '#ffffff', borderRadius: '8px', padding: '4px' }}
+                        />
+                        <div>
+                            <div style={{ fontSize: '22px', fontWeight: 'bold', letterSpacing: '0.5px', lineHeight: 1 }}>
+                                Rubia Joias
+                            </div>
+                            <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '4px', letterSpacing: '1.5px', textTransform: 'uppercase' }}>
+                                Elegância e Sofisticação
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '10px', opacity: 0.8, letterSpacing: '1px', textTransform: 'uppercase' }}>
+                            Resumo de Venda
+                        </div>
+                        <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '4px' }}>
+                            #{sale.id.slice(0, 8).toUpperCase()}
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            {/* Informações da Venda */}
-            <div style={{ marginBottom: '32px', backgroundColor: '#F9FAFB', padding: '20px', borderRadius: '8px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                            <User size={18} color="#EC4899" />
-                            <span style={{ fontSize: '12px', color: '#6B7280', fontWeight: '600' }}>CLIENTE</span>
+            {/* Corpo principal com padding */}
+            <div style={{ padding: '28px 40px 32px 40px' }}>
+
+                {/* Informações da Venda — cards lado a lado */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '12px',
+                    marginBottom: '24px'
+                }}>
+                    <div style={{
+                        backgroundColor: COLORS.bgSoft,
+                        padding: '14px 16px',
+                        borderRadius: '10px',
+                        border: `1px solid ${COLORS.border}`
+                    }}>
+                        <div style={{ fontSize: '10px', color: COLORS.textMuted, fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
+                            Cliente
                         </div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#1F2937' }}>
+                        <div style={{ fontSize: '15px', fontWeight: 'bold', color: COLORS.text }}>
                             {sale.cliente.nome}
                         </div>
                     </div>
-
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                            <Calendar size={18} color="#EC4899" />
-                            <span style={{ fontSize: '12px', color: '#6B7280', fontWeight: '600' }}>DATA DA VENDA</span>
+                    <div style={{
+                        backgroundColor: COLORS.bgSoft,
+                        padding: '14px 16px',
+                        borderRadius: '10px',
+                        border: `1px solid ${COLORS.border}`
+                    }}>
+                        <div style={{ fontSize: '10px', color: COLORS.textMuted, fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
+                            Data da Venda
                         </div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#1F2937' }}>
+                        <div style={{ fontSize: '15px', fontWeight: 'bold', color: COLORS.text }}>
                             {formatDate(sale.data_venda)}
                         </div>
                     </div>
-
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                            <CreditCard size={18} color="#EC4899" />
-                            <span style={{ fontSize: '12px', color: '#6B7280', fontWeight: '600' }}>FORMA DE PAGAMENTO</span>
+                    <div style={{
+                        backgroundColor: COLORS.bgSoft,
+                        padding: '14px 16px',
+                        borderRadius: '10px',
+                        border: `1px solid ${COLORS.border}`
+                    }}>
+                        <div style={{ fontSize: '10px', color: COLORS.textMuted, fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
+                            Forma de Pagamento
                         </div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#1F2937' }}>
+                        <div style={{ fontSize: '15px', fontWeight: 'bold', color: COLORS.text, display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {formatPaymentMethod(sale.forma_pagamento)}
                             {isAVista && (
                                 <span style={{
-                                    marginLeft: '8px',
-                                    fontSize: '11px',
+                                    fontSize: '9px',
                                     backgroundColor: '#DBEAFE',
                                     color: '#1E40AF',
-                                    padding: '2px 8px',
-                                    borderRadius: '4px',
-                                    fontWeight: '600'
+                                    padding: '3px 8px',
+                                    borderRadius: '10px',
+                                    fontWeight: 700,
+                                    letterSpacing: '0.5px'
                                 }}>
                                     À VISTA
                                 </span>
                             )}
                         </div>
                     </div>
-
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                            <DollarSign size={18} color="#EC4899" />
-                            <span style={{ fontSize: '12px', color: '#6B7280', fontWeight: '600' }}>VALOR TOTAL</span>
+                    <div style={{
+                        background: `linear-gradient(135deg, ${COLORS.primaryLight} 0%, #FBCFE8 100%)`,
+                        padding: '14px 16px',
+                        borderRadius: '10px',
+                        border: `1px solid ${COLORS.primary}`
+                    }}>
+                        <div style={{ fontSize: '10px', color: COLORS.primaryDark, fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
+                            Valor Total
                         </div>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#EC4899' }}>
+                        <div style={{ fontSize: '22px', fontWeight: 'bold', color: COLORS.primaryDark, lineHeight: 1 }}>
                             R$ {sale.valor_total.toFixed(2)}
                         </div>
                     </div>
                 </div>
-            </div>
 
-            {/* Tabela de Parcelas */}
-            <div style={{ marginBottom: '32px' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1F2937', marginBottom: '16px', borderBottom: '2px solid #E5E7EB', paddingBottom: '8px' }}>
-                    PARCELAS ({sale.parcelas.length}x)
-                </h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                        <tr style={{ backgroundColor: '#F3F4F6' }}>
-                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#6B7280', border: '1px solid #E5E7EB' }}>Nº</th>
-                            <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6B7280', border: '1px solid #E5E7EB' }}>VALOR</th>
-                            <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6B7280', border: '1px solid #E5E7EB' }}>VENCIMENTO</th>
-                            <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6B7280', border: '1px solid #E5E7EB' }}>PAGAMENTO</th>
-                            <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6B7280', border: '1px solid #E5E7EB' }}>STATUS</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {sale.parcelas.map((parcela, index) => (
-                            <tr key={parcela.id} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#F9FAFB' }}>
-                                <td style={{ padding: '12px', fontSize: '14px', fontWeight: '600', color: '#1F2937', border: '1px solid #E5E7EB' }}>
-                                    {parcela.numero_parcela}ª
-                                </td>
-                                <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: 'bold', color: '#1F2937', border: '1px solid #E5E7EB' }}>
-                                    R$ {Number(parcela.valor_parcela).toFixed(2)}
-                                </td>
-                                <td style={{ padding: '12px', textAlign: 'center', fontSize: '13px', color: '#4B5563', border: '1px solid #E5E7EB' }}>
-                                    {parcela.numero_parcela === 0 ? (
-                                        <span style={{ color: '#10B981', fontWeight: '600' }}>ENTRADA</span>
-                                    ) : (
-                                        formatDate(parcela.data_vencimento)
-                                    )}
-                                </td>
-                                <td style={{ padding: '12px', textAlign: 'center', fontSize: '13px', color: '#4B5563', border: '1px solid #E5E7EB' }}>
-                                    {parcela.data_pagamento ? formatDate(parcela.data_pagamento) : '-'}
-                                </td>
-                                <td style={{ padding: '12px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
-                                    {parcela.pago ? (
-                                        <span style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '4px',
-                                            backgroundColor: '#D1FAE5',
-                                            color: '#065F46',
-                                            padding: '4px 12px',
-                                            borderRadius: '12px',
-                                            fontSize: '12px',
-                                            fontWeight: '600'
-                                        }}>
-                                            <Check size={14} /> PAGO
-                                        </span>
-                                    ) : (
-                                        <span style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '4px',
-                                            backgroundColor: '#FEE2E2',
-                                            color: '#991B1B',
-                                            padding: '4px 12px',
-                                            borderRadius: '12px',
-                                            fontSize: '12px',
-                                            fontWeight: '600'
-                                        }}>
-                                            <X size={14} /> PENDENTE
-                                        </span>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                {/* Tabela de Produtos */}
+                <div style={{ marginBottom: '24px' }}>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'baseline',
+                        marginBottom: '12px',
+                        paddingBottom: '8px',
+                        borderBottom: `2px solid ${COLORS.primary}`
+                    }}>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: COLORS.text, letterSpacing: '1px', textTransform: 'uppercase' }}>
+                            Produtos
+                        </div>
+                        <div style={{ fontSize: '11px', color: COLORS.textMuted }}>
+                            {sale.itens.length} {sale.itens.length === 1 ? 'item' : 'itens'} • {totalItens} {totalItens === 1 ? 'unidade' : 'unidades'}
+                        </div>
+                    </div>
 
-                {/* Observações */}
-                {sale.parcelas[0]?.observacoes && (
-                    <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#FEF3C7', borderLeft: '4px solid #F59E0B', fontSize: '12px', color: '#92400E' }}>
-                        <strong>Obs:</strong> {sale.parcelas[0].observacoes}
+                    {sale.itens.length === 0 ? (
+                        <div style={{
+                            padding: '20px',
+                            textAlign: 'center',
+                            color: COLORS.textFaint,
+                            fontSize: '12px',
+                            fontStyle: 'italic',
+                            backgroundColor: COLORS.bgSoft,
+                            borderRadius: '8px'
+                        }}>
+                            Nenhum item registrado nesta venda
+                        </div>
+                    ) : (
+                        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+                            <thead>
+                                <tr>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderTopLeftRadius: '8px', borderBottom: `1px solid ${COLORS.border}` }}>
+                                        Produto
+                                    </th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderBottom: `1px solid ${COLORS.border}`, width: '60px' }}>
+                                        Qtd
+                                    </th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderBottom: `1px solid ${COLORS.border}`, width: '100px' }}>
+                                        Unit.
+                                    </th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderTopRightRadius: '8px', borderBottom: `1px solid ${COLORS.border}`, width: '110px' }}>
+                                        Subtotal
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sale.itens.map((item, index) => {
+                                    const isLast = index === sale.itens.length - 1;
+                                    const rowBorder = isLast ? 'none' : `1px solid ${COLORS.border}`;
+                                    return (
+                                        <tr key={item.id}>
+                                            <td style={{ padding: '12px', fontSize: '13px', color: COLORS.text, borderBottom: rowBorder, verticalAlign: 'top' }}>
+                                                <div style={{ fontWeight: 600 }}>
+                                                    {item.produto?.descricao || 'Produto não identificado'}
+                                                </div>
+                                                {(item.produto?.categoria || item.produto?.codigo) && (
+                                                    <div style={{ fontSize: '10px', color: COLORS.textFaint, marginTop: '2px' }}>
+                                                        {item.produto?.categoria}
+                                                        {item.produto?.categoria && item.produto?.codigo ? ' • ' : ''}
+                                                        {item.produto?.codigo ? `Cód: ${item.produto.codigo}` : ''}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td style={{ padding: '12px', fontSize: '13px', color: COLORS.text, textAlign: 'center', borderBottom: rowBorder, fontWeight: 600 }}>
+                                                {item.quantidade}
+                                            </td>
+                                            <td style={{ padding: '12px', fontSize: '13px', color: COLORS.textMuted, textAlign: 'right', borderBottom: rowBorder }}>
+                                                R$ {item.valor_unitario.toFixed(2)}
+                                            </td>
+                                            <td style={{ padding: '12px', fontSize: '13px', color: COLORS.text, textAlign: 'right', borderBottom: rowBorder, fontWeight: 700 }}>
+                                                R$ {itemSubtotal(item).toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    )}
+
+                    {/* Linha de subtotal + desconto (quando aplicável) */}
+                    {sale.itens.length > 0 && (
+                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px dashed ${COLORS.border}` }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: COLORS.textMuted, marginBottom: '4px' }}>
+                                <span>Subtotal dos produtos</span>
+                                <span style={{ fontWeight: 600, color: COLORS.text }}>R$ {produtosSubtotal.toFixed(2)}</span>
+                            </div>
+                            {possuiDesconto && produtosSubtotal > sale.valor_total && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: COLORS.success, marginBottom: '4px' }}>
+                                    <span>Desconto aplicado</span>
+                                    <span style={{ fontWeight: 600 }}>- R$ {(produtosSubtotal - sale.valor_total).toFixed(2)}</span>
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '6px', paddingTop: '6px', borderTop: `1px solid ${COLORS.border}` }}>
+                                <span style={{ fontWeight: 700, color: COLORS.text }}>Total da venda</span>
+                                <span style={{ fontWeight: 700, color: COLORS.primary }}>R$ {sale.valor_total.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Parcelas (só mostra se houver mais de uma ou se for fiado) */}
+                {sale.parcelas.length > 0 && (
+                    <div style={{ marginBottom: '24px' }}>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'baseline',
+                            marginBottom: '12px',
+                            paddingBottom: '8px',
+                            borderBottom: `2px solid ${COLORS.primary}`
+                        }}>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: COLORS.text, letterSpacing: '1px', textTransform: 'uppercase' }}>
+                                Parcelas
+                            </div>
+                            <div style={{ fontSize: '11px', color: COLORS.textMuted }}>
+                                {sale.parcelas.length}x
+                            </div>
+                        </div>
+
+                        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+                            <thead>
+                                <tr>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderTopLeftRadius: '8px', borderBottom: `1px solid ${COLORS.border}`, width: '50px' }}>
+                                        Nº
+                                    </th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderBottom: `1px solid ${COLORS.border}` }}>
+                                        Valor
+                                    </th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderBottom: `1px solid ${COLORS.border}` }}>
+                                        Vencimento
+                                    </th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderBottom: `1px solid ${COLORS.border}` }}>
+                                        Pagamento
+                                    </th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: '10px', fontWeight: 700, color: COLORS.textMuted, letterSpacing: '0.6px', textTransform: 'uppercase', backgroundColor: COLORS.bgAlt, borderTopRightRadius: '8px', borderBottom: `1px solid ${COLORS.border}` }}>
+                                        Status
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sale.parcelas.map((parcela, index) => {
+                                    const isLast = index === sale.parcelas.length - 1;
+                                    const rowBorder = isLast ? 'none' : `1px solid ${COLORS.border}`;
+                                    return (
+                                        <tr key={parcela.id}>
+                                            <td style={{ padding: '10px 12px', fontSize: '12px', color: COLORS.text, fontWeight: 700, borderBottom: rowBorder }}>
+                                                {parcela.numero_parcela === 0 ? '—' : `${parcela.numero_parcela}ª`}
+                                            </td>
+                                            <td style={{ padding: '10px 12px', fontSize: '12px', color: COLORS.text, textAlign: 'right', fontWeight: 700, borderBottom: rowBorder }}>
+                                                R$ {Number(parcela.valor_parcela).toFixed(2)}
+                                            </td>
+                                            <td style={{ padding: '10px 12px', fontSize: '11px', color: COLORS.textMuted, textAlign: 'center', borderBottom: rowBorder }}>
+                                                {parcela.numero_parcela === 0 ? (
+                                                    <span style={{ color: COLORS.success, fontWeight: 600 }}>ENTRADA</span>
+                                                ) : (
+                                                    formatDate(parcela.data_vencimento)
+                                                )}
+                                            </td>
+                                            <td style={{ padding: '10px 12px', fontSize: '11px', color: COLORS.textMuted, textAlign: 'center', borderBottom: rowBorder }}>
+                                                {parcela.data_pagamento ? formatDate(parcela.data_pagamento) : '—'}
+                                            </td>
+                                            <td style={{ padding: '10px 12px', textAlign: 'center', borderBottom: rowBorder }}>
+                                                {parcela.pago ? (
+                                                    <span style={{
+                                                        display: 'inline-block',
+                                                        backgroundColor: COLORS.successBg,
+                                                        color: COLORS.success,
+                                                        padding: '3px 10px',
+                                                        borderRadius: '10px',
+                                                        fontSize: '10px',
+                                                        fontWeight: 700,
+                                                        letterSpacing: '0.5px'
+                                                    }}>
+                                                        PAGO
+                                                    </span>
+                                                ) : (
+                                                    <span style={{
+                                                        display: 'inline-block',
+                                                        backgroundColor: COLORS.dangerBg,
+                                                        color: COLORS.danger,
+                                                        padding: '3px 10px',
+                                                        borderRadius: '10px',
+                                                        fontSize: '10px',
+                                                        fontWeight: 700,
+                                                        letterSpacing: '0.5px'
+                                                    }}>
+                                                        PENDENTE
+                                                    </span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+
+                        {/* Observações */}
+                        {sale.parcelas[0]?.observacoes && (
+                            <div style={{
+                                marginTop: '10px',
+                                padding: '10px 14px',
+                                backgroundColor: COLORS.warningBg,
+                                borderLeft: `3px solid ${COLORS.warningBorder}`,
+                                fontSize: '11px',
+                                color: COLORS.warningText,
+                                borderRadius: '4px'
+                            }}>
+                                <strong>Obs:</strong> {sale.parcelas[0].observacoes}
+                            </div>
+                        )}
                     </div>
                 )}
-            </div>
 
-            {/* Resumo Financeiro */}
-            <div style={{ marginBottom: '32px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div style={{ backgroundColor: '#D1FAE5', padding: '16px', borderRadius: '8px', border: '2px solid #10B981' }}>
-                    <div style={{ fontSize: '12px', color: '#065F46', fontWeight: '600', marginBottom: '4px' }}>TOTAL PAGO</div>
-                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#065F46' }}>
-                        R$ {sale.totalPago.toFixed(2)}
+                {/* Resumo Financeiro */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '12px',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{
+                        backgroundColor: COLORS.successBg,
+                        padding: '16px 20px',
+                        borderRadius: '10px',
+                        border: `2px solid ${COLORS.success}`
+                    }}>
+                        <div style={{ fontSize: '10px', color: COLORS.success, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
+                            Total Pago
+                        </div>
+                        <div style={{ fontSize: '22px', fontWeight: 'bold', color: COLORS.success, lineHeight: 1 }}>
+                            R$ {sale.totalPago.toFixed(2)}
+                        </div>
+                    </div>
+                    <div style={{
+                        backgroundColor: COLORS.dangerBg,
+                        padding: '16px 20px',
+                        borderRadius: '10px',
+                        border: `2px solid ${COLORS.danger}`
+                    }}>
+                        <div style={{ fontSize: '10px', color: COLORS.danger, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
+                            Total Pendente
+                        </div>
+                        <div style={{ fontSize: '22px', fontWeight: 'bold', color: COLORS.danger, lineHeight: 1 }}>
+                            R$ {sale.totalPendente.toFixed(2)}
+                        </div>
                     </div>
                 </div>
-                <div style={{ backgroundColor: '#FEE2E2', padding: '16px', borderRadius: '8px', border: '2px solid #EF4444' }}>
-                    <div style={{ fontSize: '12px', color: '#991B1B', fontWeight: '600', marginBottom: '4px' }}>TOTAL PENDENTE</div>
-                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#991B1B' }}>
-                        R$ {sale.totalPendente.toFixed(2)}
-                    </div>
-                </div>
-            </div>
 
-            {/* Rodapé */}
-            <div style={{ borderTop: '2px solid #E5E7EB', paddingTop: '20px', textAlign: 'center' }}>
-                <div style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '8px' }}>
-                    Documento emitido em: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}
-                </div>
-                <div style={{ fontSize: '10px', color: '#D1D5DB' }}>
-                    Este documento é apenas um resumo da venda para controle interno
+                {/* Rodapé */}
+                <div style={{
+                    borderTop: `1px solid ${COLORS.border}`,
+                    paddingTop: '16px',
+                    textAlign: 'center'
+                }}>
+                    <div style={{ fontSize: '10px', color: COLORS.textMuted, marginBottom: '4px' }}>
+                        Documento emitido em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <div style={{ fontSize: '9px', color: COLORS.textFaint }}>
+                        Este documento é apenas um resumo da venda para controle interno • Rubia Joias
+                    </div>
                 </div>
             </div>
         </div>
