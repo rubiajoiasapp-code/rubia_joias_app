@@ -12,6 +12,7 @@ import Credit from './pages/Credit';
 import Settings from './pages/Settings';
 import ExpirationDates from './pages/ExpirationDates';
 import Catalog from './pages/Catalog';
+import Historico from './pages/Historico';
 
 // Desabilita autenticação apenas em desenvolvimento local e se a variável
 // VITE_DISABLE_AUTH=true estiver presente — nunca em produção.
@@ -42,6 +43,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="clientes" element={<Clients />} />
             <Route path="vendas" element={<Sales />} />
+            <Route path="historico" element={<Historico />} />
             <Route path="vencimentos" element={<ExpirationDates />} />
             <Route path="financeiro" element={<Financial />} />
             <Route path="crediario" element={<Credit />} />
