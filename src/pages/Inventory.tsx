@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Search, CheckSquare, Eye, EyeOff } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 
 interface Product {
     id: string;
@@ -26,8 +27,9 @@ interface PurchaseOrigin {
 }
 
 const Inventory: React.FC = () => {
-    const [products, setProducts] = useState<Product[]>([]);
-    const [loading, setLoading] = useState(true);
+    const initialCachedProducts = cacheGet<Product[]>('inventory_products');
+    const [products, setProducts] = useState<Product[]>(initialCachedProducts || []);
+    const [loading, setLoading] = useState(!initialCachedProducts);
     const [uploading, setUploading] = useState(false);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -80,6 +82,7 @@ const Inventory: React.FC = () => {
 
             if (error) throw error;
             setProducts(data || []);
+            cacheSet('inventory_products', data || []);
         } catch (error) {
             console.error('Error fetching products:', error);
         } finally {
@@ -271,6 +274,7 @@ const Inventory: React.FC = () => {
             }
 
             cancelEditing(); // Resets form and state
+            cacheInvalidate('inventory_products');
             fetchProducts();
         } catch (error: any) {
             console.error('Error saving product:', error);
@@ -290,6 +294,7 @@ const Inventory: React.FC = () => {
                 .eq('id', id);
 
             if (error) throw error;
+            cacheInvalidate('inventory_products');
             fetchProducts();
         } catch (error: any) {
             console.error('Error deleting product:', error);
@@ -326,6 +331,7 @@ const Inventory: React.FC = () => {
             if (error) throw error;
 
             alert(`✅ Estoque atualizado!\n\nAnterior: ${product.quantidade_estoque} unid.\nAdicionado: +${quantity} unid.\nNovo total: ${newStock} unid.`);
+            cacheInvalidate('inventory_products');
             fetchProducts();
         } catch (error) {
             console.error('Error updating stock:', error);
@@ -439,6 +445,7 @@ const Inventory: React.FC = () => {
 
             alert(`✅ ${selectedProds.size} produtos ${show ? 'adicionados ao' : 'removidos do'} catálogo com sucesso!`);
             setSelectedProds(new Set()); // Clear selection
+            cacheInvalidate('inventory_products');
             fetchProducts();
         } catch (error: any) {
             console.error('Error updating catalog status:', error);

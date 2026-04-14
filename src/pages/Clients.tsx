@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Pencil, Trash2, UserPlus, X } from 'lucide-react';
+import { Pencil, Trash2, UserPlus, X, Edit3 } from 'lucide-react';
 import { normalizeCpf, normalizePhone, isValidCpf, formatCpf, formatPhone } from '../lib/format';
+import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 
 interface Client {
     id: string;
@@ -14,13 +15,16 @@ interface Client {
 const emptyForm = { nome: '', cpf: '', endereco: '', telefone: '' };
 
 const Clients: React.FC = () => {
-    const [clients, setClients] = useState<Client[]>([]);
-    const [loading, setLoading] = useState(true);
+    const initialCached = cacheGet<Client[]>('clients_list');
+    const [clients, setClients] = useState<Client[]>(initialCached || []);
+    const [loading, setLoading] = useState(!initialCached);
     const [formData, setFormData] = useState(emptyForm);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const submittingRef = useRef(false);
     const mountedRef = useRef(true);
+    const formCardRef = useRef<HTMLDivElement>(null);
+    const firstInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -38,7 +42,9 @@ const Clients: React.FC = () => {
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            if (mountedRef.current) setClients(data || []);
+            if (!mountedRef.current) return;
+            setClients(data || []);
+            cacheSet('clients_list', data || []);
         } catch (error) {
             console.error('Error fetching clients:', error);
         } finally {
@@ -64,7 +70,11 @@ const Clients: React.FC = () => {
             endereco: client.endereco || '',
             telefone: client.telefone || ''
         });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Rola até o form e dá foco no primeiro input
+        requestAnimationFrame(() => {
+            formCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setTimeout(() => firstInputRef.current?.focus(), 350);
+        });
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -118,6 +128,7 @@ const Clients: React.FC = () => {
                 alert('✅ Cliente cadastrado com sucesso!');
             }
             resetForm();
+            cacheInvalidate('clients_list');
             fetchClients();
         } catch (error) {
             console.error('❌ Error saving client:', error);
@@ -147,6 +158,7 @@ const Clients: React.FC = () => {
                 .eq('id', id);
 
             if (error) throw error;
+            cacheInvalidate('clients_list');
             fetchClients();
         } catch (error) {
             console.error('Error deleting client:', error);
@@ -165,13 +177,22 @@ const Clients: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Form Section */}
-                <div className={`bg-white p-6 rounded-lg shadow-md h-fit ${editingId ? 'ring-2 ring-blue-500' : ''}`}>
+                <div
+                    ref={formCardRef}
+                    className={`bg-white p-6 rounded-lg shadow-md h-fit transition-all ${editingId ? 'ring-4 ring-blue-500 animate-edit-glow shadow-blue-200' : ''}`}
+                >
+                    {editingId && (
+                        <div className="mb-4 inline-flex items-center gap-2 bg-blue-100 text-blue-800 px-3 py-1.5 rounded-full text-sm font-bold animate-pulse">
+                            <Edit3 className="w-4 h-4" />
+                            Em edição
+                        </div>
+                    )}
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-gray-800">
                             {editingId ? 'Editar Cliente' : 'Novo Cliente'}
                         </h3>
                         {editingId && (
-                            <button onClick={resetForm} className="text-gray-500 hover:text-gray-700">
+                            <button onClick={resetForm} className="text-gray-500 hover:text-gray-700" title="Cancelar edição">
                                 <X className="w-5 h-5" />
                             </button>
                         )}
@@ -179,6 +200,7 @@ const Clients: React.FC = () => {
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>
                             <input
+                                ref={firstInputRef}
                                 type="text"
                                 name="nome"
                                 placeholder="Nome Completo"

@@ -14,6 +14,7 @@ import {
     Box
 } from 'lucide-react';
 import { todayLocalISO } from '../lib/format';
+import { cacheGet, cacheSet } from '../lib/cache';
 
 interface DashboardMetrics {
     vendasHoje: number;
@@ -41,21 +42,24 @@ const formatLocalDate = (d: Date): string => {
     return `${y}-${m}-${day}`;
 };
 
+const emptyMetrics: DashboardMetrics = {
+    vendasHoje: 0,
+    vendasMes: 0,
+    contasPagar: 0,
+    produtosEstoque: 0,
+    clientesTotal: 0,
+    novosMes: 0,
+    clientesAtivos: 0,
+    vendasRecentes: [],
+    produtosBaixoEstoque: [],
+    receitaMensal: [],
+    produtoMaisVendido: null
+};
+
 const Dashboard: React.FC = () => {
-    const [metrics, setMetrics] = useState<DashboardMetrics>({
-        vendasHoje: 0,
-        vendasMes: 0,
-        contasPagar: 0,
-        produtosEstoque: 0,
-        clientesTotal: 0,
-        novosMes: 0,
-        clientesAtivos: 0,
-        vendasRecentes: [],
-        produtosBaixoEstoque: [],
-        receitaMensal: [],
-        produtoMaisVendido: null
-    });
-    const [loading, setLoading] = useState(true);
+    const initialCached = cacheGet<DashboardMetrics>('dashboard_metrics');
+    const [metrics, setMetrics] = useState<DashboardMetrics>(initialCached || emptyMetrics);
+    const [loading, setLoading] = useState(!initialCached);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const mountedRef = useRef(true);
 
@@ -73,110 +77,115 @@ const Dashboard: React.FC = () => {
             const now = new Date();
             const primeiroDiaMes = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
             const trintaDiasAtras = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30));
+            // Janela de 6 meses para gráfico de receita mensal
+            const seisMesesAtrasDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+            const seisMesesAtras = formatLocalDate(seisMesesAtrasDate);
 
-            // Vendas de hoje
-            const { data: vendasHoje } = await supabase
-                .from('vendas')
-                .select('valor_total')
-                .gte('data_venda', hoje);
+            // Todas as queries em paralelo (reduz ~12 requests sequenciais para 1 round-trip).
+            const [
+                vendasJanelaRes,
+                parcelasPendentesRes,
+                produtosCountRes,
+                clientesCountRes,
+                novosMesCountRes,
+                vendasRecentesDistRes,
+                vendasRecentesRes,
+                produtosBaixoEstoqueRes,
+                itensVendaRes
+            ] = await Promise.all([
+                supabase
+                    .from('vendas')
+                    .select('valor_total, data_venda')
+                    .gte('data_venda', seisMesesAtras),
+                supabase
+                    .from('parcelas_pagar')
+                    .select('valor_parcela')
+                    .eq('pago', false),
+                supabase
+                    .from('produtos')
+                    .select('*', { count: 'estimated', head: true }),
+                supabase
+                    .from('clientes')
+                    .select('*', { count: 'estimated', head: true }),
+                supabase
+                    .from('clientes')
+                    .select('*', { count: 'exact', head: true })
+                    .gte('created_at', primeiroDiaMes),
+                supabase
+                    .from('vendas')
+                    .select('cliente_id')
+                    .gte('data_venda', trintaDiasAtras),
+                supabase
+                    .from('vendas')
+                    .select(`*, cliente:clientes(nome)`)
+                    .order('data_venda', { ascending: false })
+                    .limit(5),
+                supabase
+                    .from('produtos')
+                    .select('*')
+                    .lte('quantidade_estoque', 3)
+                    .order('quantidade_estoque', { ascending: true })
+                    .limit(5),
+                supabase
+                    .from('itens_venda')
+                    .select(`
+                        produto_id,
+                        quantidade,
+                        valor_unitario,
+                        produto:produtos(descricao, categoria)
+                    `)
+                    .limit(5000)
+            ]);
 
-            const totalHoje = vendasHoje?.reduce((sum, v) => sum + Number(v.valor_total), 0) || 0;
+            // Deriva totalHoje, totalMes e receitaMensal a partir do mesmo dataset
+            // de vendas da janela de 6 meses — 1 query em vez de 8.
+            const vendasJanela = vendasJanelaRes.data || [];
+            let totalHoje = 0;
+            let totalMes = 0;
+            const receitaMap = new Map<string, number>();
+            for (const v of vendasJanela) {
+                const dataStr = String(v.data_venda).slice(0, 10); // YYYY-MM-DD
+                const valor = Number(v.valor_total) || 0;
+                if (dataStr >= hoje) totalHoje += valor;
+                if (dataStr >= primeiroDiaMes) totalMes += valor;
+                const chaveMes = dataStr.slice(0, 7); // YYYY-MM
+                receitaMap.set(chaveMes, (receitaMap.get(chaveMes) || 0) + valor);
+            }
 
-            // Vendas do mês
-            const { data: vendasMes } = await supabase
-                .from('vendas')
-                .select('valor_total')
-                .gte('data_venda', primeiroDiaMes);
+            const receitaMensal: { mes: string; valor: number }[] = [];
+            for (let i = 5; i >= 0; i--) {
+                const ref = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const chave = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`;
+                receitaMensal.push({
+                    mes: ref.toLocaleDateString('pt-BR', { month: 'short' }),
+                    valor: receitaMap.get(chave) || 0
+                });
+            }
 
-            const totalMes = vendasMes?.reduce((sum, v) => sum + Number(v.valor_total), 0) || 0;
+            const parcelasPendentes = parcelasPendentesRes.data || [];
+            const totalPagar = parcelasPendentes.reduce((sum, p) => sum + Number(p.valor_parcela), 0);
+            const produtosCount = produtosCountRes.count || 0;
+            const clientesCount = clientesCountRes.count || 0;
+            const novosMesCount = novosMesCountRes.count || 0;
 
-            // Contas a pagar pendentes
-            const { data: parcelasPendentes } = await supabase
-                .from('parcelas_pagar')
-                .select('valor_parcela')
-                .eq('pago', false);
-
-            const totalPagar = parcelasPendentes?.reduce((sum, p) => sum + Number(p.valor_parcela), 0) || 0;
-
-            // Produtos em estoque
-            const { count: produtosCount } = await supabase
-                .from('produtos')
-                .select('*', { count: 'exact', head: true });
-
-            // Clientes totais
-            const { count: clientesCount } = await supabase
-                .from('clientes')
-                .select('*', { count: 'exact', head: true });
-
-            // Novos clientes este mês (contagem real)
-            const { count: novosMesCount } = await supabase
-                .from('clientes')
-                .select('*', { count: 'exact', head: true })
-                .gte('created_at', primeiroDiaMes);
-
-            // Clientes ativos (distintos) nos últimos 30 dias
-            const { data: vendasRecentesDist } = await supabase
-                .from('vendas')
-                .select('cliente_id')
-                .gte('data_venda', trintaDiasAtras);
             const clientesAtivosSet = new Set<string>();
-            (vendasRecentesDist || []).forEach((v: { cliente_id: string | null }) => {
+            (vendasRecentesDistRes.data || []).forEach((v: { cliente_id: string | null }) => {
                 if (v.cliente_id) clientesAtivosSet.add(v.cliente_id);
             });
             const clientesAtivosCount = clientesAtivosSet.size;
 
-            // Vendas recentes (últimas 5)
-            const { data: vendasRecentes } = await supabase
-                .from('vendas')
-                .select(`
-                    *,
-                    cliente:clientes(nome)
-                `)
-                .order('data_venda', { ascending: false })
-                .limit(5);
+            const vendasRecentes = vendasRecentesRes.data || [];
+            const produtosBaixoEstoque = produtosBaixoEstoqueRes.data || [];
+            const itensVenda = itensVendaRes.data || [];
 
-            // Produtos com estoque baixo (<=3 unidades)
-            const { data: produtosBaixoEstoque } = await supabase
-                .from('produtos')
-                .select('*')
-                .lte('quantidade_estoque', 3)
-                .order('quantidade_estoque', { ascending: true })
-                .limit(5);
-
-            // Receita mensal (últimos 6 meses, timezone local)
-            const receitaMensal = [];
-            for (let i = 5; i >= 0; i--) {
-                const ref = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                const mesInicio = formatLocalDate(new Date(ref.getFullYear(), ref.getMonth(), 1));
-                const mesFim = formatLocalDate(new Date(ref.getFullYear(), ref.getMonth() + 1, 0));
-
-                const { data: vendas } = await supabase
-                    .from('vendas')
-                    .select('valor_total')
-                    .gte('data_venda', mesInicio)
-                    .lte('data_venda', mesFim + 'T23:59:59');
-
-                const total = vendas?.reduce((sum, v) => sum + Number(v.valor_total), 0) || 0;
-                receitaMensal.push({
-                    mes: ref.toLocaleDateString('pt-BR', { month: 'short' }),
-                    valor: total
-                });
-            }
-
-            // Produto mais vendido (todos os tempos)
-            const { data: itensVenda } = await supabase
-                .from('itens_venda')
-                .select(`
-                    produto_id,
-                    quantidade,
-                    valor_unitario,
-                    produto:produtos(descricao, categoria)
-                `);
-
-            let produtoMaisVendido = null;
-            if (itensVenda && itensVenda.length > 0) {
-                // Agrupar por produto_id
-                const produtosAgrupados: any = {};
+            let produtoMaisVendido: DashboardMetrics['produtoMaisVendido'] = null;
+            if (itensVenda.length > 0) {
+                const produtosAgrupados: Record<string, {
+                    descricao: string;
+                    categoria: string;
+                    quantidade_vendida: number;
+                    receita_total: number;
+                }> = {};
                 itensVenda.forEach((item: any) => {
                     if (!item.produto_id) return;
 
@@ -193,28 +202,28 @@ const Dashboard: React.FC = () => {
                     produtosAgrupados[item.produto_id].receita_total += item.quantidade * Number(item.valor_unitario);
                 });
 
-                // Encontrar o mais vendido
-                const maisVendido = Object.values(produtosAgrupados).sort((a: any, b: any) =>
-                    b.quantidade_vendida - a.quantidade_vendida
-                )[0];
-
-                produtoMaisVendido = maisVendido || null;
+                const sorted = Object.values(produtosAgrupados).sort(
+                    (a, b) => b.quantidade_vendida - a.quantidade_vendida
+                );
+                produtoMaisVendido = sorted[0] || null;
             }
 
             if (!mountedRef.current) return;
-            setMetrics({
+            const next: DashboardMetrics = {
                 vendasHoje: totalHoje,
                 vendasMes: totalMes,
                 contasPagar: totalPagar,
-                produtosEstoque: produtosCount || 0,
-                clientesTotal: clientesCount || 0,
-                novosMes: novosMesCount || 0,
+                produtosEstoque: produtosCount,
+                clientesTotal: clientesCount,
+                novosMes: novosMesCount,
                 clientesAtivos: clientesAtivosCount,
-                vendasRecentes: vendasRecentes || [],
-                produtosBaixoEstoque: produtosBaixoEstoque || [],
+                vendasRecentes,
+                produtosBaixoEstoque,
                 receitaMensal,
-                produtoMaisVendido: produtoMaisVendido as any
-            });
+                produtoMaisVendido
+            };
+            setMetrics(next);
+            cacheSet('dashboard_metrics', next);
         } catch (error: any) {
             console.error('Error fetching dashboard data:', error);
             if (mountedRef.current) setErrorMsg('Não foi possível carregar os dados. ' + (error?.message || ''));

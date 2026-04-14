@@ -4,6 +4,7 @@ import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, Al
 import html2canvas from 'html2canvas';
 import SaleReceipt from '../components/SaleReceipt';
 import { todayLocalISO, splitInstallments, roundMoney, normalizePhone } from '../lib/format';
+import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 
 interface Sale {
     id: string;
@@ -47,8 +48,11 @@ interface SaleWithInstallments extends Sale {
 }
 
 const Credit: React.FC = () => {
-    const [sales, setSales] = useState<SaleWithInstallments[]>([]);
-    const [loading, setLoading] = useState(true);
+    // Lê cache sincronicamente na primeira renderização. Se existir, a página
+    // aparece instantânea; o revalidate roda em background.
+    const initialCached = cacheGet<SaleWithInstallments[]>('credit_sales');
+    const [sales, setSales] = useState<SaleWithInstallments[]>(initialCached || []);
+    const [loading, setLoading] = useState(!initialCached);
     const [expandedSale, setExpandedSale] = useState<string | null>(null);
     const [editingInstallment, setEditingInstallment] = useState<Installment | null>(null);
     const [filter, setFilter] = useState<'TODAS' | 'PARCELADAS' | 'AVISTA'>('TODAS');
@@ -85,73 +89,83 @@ const Credit: React.FC = () => {
 
     const fetchSalesWithInstallments = async () => {
         try {
-            // Buscar TODAS as vendas (não apenas FIADO)
-            const { data: salesData, error: salesError } = await supabase
-                .from('vendas')
-                .select(`
-          *,
-          cliente:clientes(nome)
-        `)
-                .order('data_venda', { ascending: false });
+            // 3 queries totais em paralelo (em vez de N+1 por venda).
+            // Com 150+ vendas, isso vai de 300+ requests para 3.
+            const [salesRes, parcelasRes, itensRes] = await Promise.all([
+                supabase
+                    .from('vendas')
+                    .select(`*, cliente:clientes(nome)`)
+                    .order('data_venda', { ascending: false }),
+                supabase
+                    .from('parcelas_venda')
+                    .select('*')
+                    .order('numero_parcela'),
+                supabase
+                    .from('itens_venda')
+                    .select(`
+                        id,
+                        venda_id,
+                        quantidade,
+                        valor_unitario,
+                        subtotal,
+                        produto:produtos(descricao, categoria, codigo)
+                    `)
+            ]);
 
-            if (salesError) throw salesError;
+            if (salesRes.error) throw salesRes.error;
+            if (parcelasRes.error) throw parcelasRes.error;
+            if (itensRes.error) throw itensRes.error;
 
-            if (!salesData || salesData.length === 0) {
-                setSales([]);
+            const salesData = salesRes.data || [];
+            if (salesData.length === 0) {
+                if (mountedRef.current) setSales([]);
                 return;
             }
 
-            const salesWithInstallments: SaleWithInstallments[] = [];
+            // Indexa parcelas e itens por venda_id
+            const parcelasByVenda = new Map<string, Installment[]>();
+            (parcelasRes.data || []).forEach((p: any) => {
+                const arr = parcelasByVenda.get(p.venda_id) || [];
+                arr.push(p);
+                parcelasByVenda.set(p.venda_id, arr);
+            });
 
-            for (const sale of salesData) {
-                const [installmentsRes, itensRes] = await Promise.all([
-                    supabase
-                        .from('parcelas_venda')
-                        .select('*')
-                        .eq('venda_id', sale.id)
-                        .order('numero_parcela'),
-                    supabase
-                        .from('itens_venda')
-                        .select(`
-                            id,
-                            quantidade,
-                            valor_unitario,
-                            subtotal,
-                            produto:produtos(descricao, categoria, codigo)
-                        `)
-                        .eq('venda_id', sale.id)
-                ]);
-
-                if (installmentsRes.error) throw installmentsRes.error;
-                if (itensRes.error) throw itensRes.error;
-
-                const parcelas = installmentsRes.data || [];
-                const totalPago = parcelas.filter(p => p.pago).reduce((sum, p) => sum + Number(p.valor_parcela), 0);
-                const totalPendente = parcelas.filter(p => !p.pago).reduce((sum, p) => sum + Number(p.valor_parcela), 0);
-
-                // Normaliza shape do produto (Supabase pode retornar array ou objeto dependendo da relação)
-                const itens: SaleItem[] = (itensRes.data || []).map((raw: any) => ({
+            const itensByVenda = new Map<string, SaleItem[]>();
+            (itensRes.data || []).forEach((raw: any) => {
+                const arr = itensByVenda.get(raw.venda_id) || [];
+                arr.push({
                     id: raw.id,
                     quantidade: Number(raw.quantidade),
                     valor_unitario: Number(raw.valor_unitario),
                     subtotal: raw.subtotal != null ? Number(raw.subtotal) : undefined,
                     produto: Array.isArray(raw.produto) ? raw.produto[0] || null : raw.produto
-                }));
+                });
+                itensByVenda.set(raw.venda_id, arr);
+            });
 
-                salesWithInstallments.push({
+            const salesWithInstallments: SaleWithInstallments[] = salesData.map((sale: any) => {
+                const parcelas = (parcelasByVenda.get(sale.id) || []).sort(
+                    (a, b) => a.numero_parcela - b.numero_parcela
+                );
+                const totalPago = parcelas.filter(p => p.pago).reduce((sum, p) => sum + Number(p.valor_parcela), 0);
+                const totalPendente = parcelas.filter(p => !p.pago).reduce((sum, p) => sum + Number(p.valor_parcela), 0);
+                return {
                     ...sale,
                     parcelas,
-                    itens,
+                    itens: itensByVenda.get(sale.id) || [],
                     totalPago,
                     totalPendente
-                });
-            }
+                };
+            });
 
             if (!mountedRef.current) return;
             setSales(salesWithInstallments);
+            cacheSet('credit_sales', salesWithInstallments);
         } catch (error) {
             console.error('Erro ao buscar vendas parceladas:', error);
-            if (mountedRef.current) alert('Erro ao carregar vendas parceladas');
+            if (mountedRef.current && sales.length === 0) {
+                alert('Erro ao carregar vendas parceladas');
+            }
         } finally {
             if (mountedRef.current) setLoading(false);
         }
@@ -194,6 +208,7 @@ const Credit: React.FC = () => {
 
             alert('✅ Parcela atualizada com sucesso!');
             closeEditing();
+            cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao atualizar parcela:', error);
@@ -213,6 +228,7 @@ const Credit: React.FC = () => {
 
             if (error) throw error;
 
+            cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao atualizar pagamento:', error);
@@ -237,6 +253,7 @@ const Credit: React.FC = () => {
             if (error) throw error;
 
             alert('✅ Venda excluída com sucesso!');
+            cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao excluir venda:', error);
@@ -244,75 +261,95 @@ const Credit: React.FC = () => {
         }
     };
 
+    // Helper: captura o recibo como canvas de forma robusta.
+    // O recibo fica renderizado em position:absolute left:-9999px e o html2canvas
+    // às vezes engasga nesse layout. Tornamos temporariamente visível fora da tela
+    // (via clone) antes de capturar, e ignoramos o <img> do logo quando há CORS.
+    const captureReceipt = async (saleId: string): Promise<Blob> => {
+        const receiptElement = document.getElementById(`receipt-${saleId}`);
+        if (!receiptElement) {
+            throw new Error('Elemento do recibo não encontrado no DOM.');
+        }
+
+        const canvas = await html2canvas(receiptElement, {
+            backgroundColor: '#ffffff',
+            scale: 2,
+            logging: false,
+            useCORS: true,
+            allowTaint: true,
+            // Ignora imagens externas que podem quebrar a captura por CORS.
+            // O logo fica só no header do recibo — se quebrar, o resto sai normal.
+            ignoreElements: (el) => {
+                if (el.tagName === 'IMG') {
+                    const img = el as HTMLImageElement;
+                    // Se a imagem não carregou completamente, ignora
+                    if (!img.complete || img.naturalHeight === 0) return true;
+                }
+                return false;
+            },
+            onclone: (clonedDoc) => {
+                // No clone, torna o recibo visível dentro da página (fora da tela original)
+                // para que html2canvas consiga medir os elementos corretamente.
+                const cloned = clonedDoc.getElementById(`receipt-${saleId}`);
+                if (cloned) {
+                    cloned.style.position = 'static';
+                    cloned.style.left = '0';
+                    cloned.style.top = '0';
+                }
+            }
+        });
+
+        const blob = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob((b) => resolve(b), 'image/png');
+        });
+
+        if (!blob) {
+            throw new Error('Falha ao converter canvas em imagem.');
+        }
+        return blob;
+    };
+
     const handleDownloadReceipt = async (sale: SaleWithInstallments) => {
         try {
-            const receiptElement = document.getElementById(`receipt-${sale.id}`);
+            const blob = await captureReceipt(sale.id);
 
-            if (!receiptElement) {
-                alert('❌ Erro ao localizar o recibo. Tente novamente.');
-                return;
-            }
-
-            // Converter para canvas com alta qualidade
-            const canvas = await html2canvas(receiptElement, {
-                backgroundColor: '#ffffff',
-                scale: 2, // Alta qualidade
-                logging: false,
-                useCORS: true,
-                allowTaint: true
-            });
-
-            // Converter para PNG
-            const image = canvas.toDataURL('image/png');
-
-            // Criar link de download
+            // Download via ObjectURL (mais confiável que dataURL para imagens grandes)
+            const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
             const date = new Date(sale.data_venda).toLocaleDateString('pt-BR').replace(/\//g, '-');
             link.download = `resumo_venda_${clientName}_${date}.png`;
-            link.href = image;
+            link.href = url;
+            document.body.appendChild(link);
             link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
 
             alert('✅ Resumo baixado com sucesso!');
         } catch (error: any) {
             console.error('Erro ao gerar resumo:', error);
-            alert('❌ Erro ao gerar resumo. Tente novamente.');
+            alert('❌ Erro ao gerar resumo: ' + (error?.message || 'tente novamente'));
         }
     };
 
     const handleShareWhatsApp = async (sale: SaleWithInstallments) => {
+        let blob: Blob;
         try {
-            const receiptElement = document.getElementById(`receipt-${sale.id}`);
+            blob = await captureReceipt(sale.id);
+        } catch (error: any) {
+            console.error('Erro ao gerar imagem do recibo:', error);
+            alert('❌ Não consegui gerar a imagem do resumo.\n\nDetalhes: ' + (error?.message || 'erro desconhecido') + '\n\nTente baixar o resumo pelo botão azul.');
+            return;
+        }
 
-            if (!receiptElement) {
-                alert('❌ Erro ao localizar o recibo. Tente novamente.');
-                return;
-            }
+        const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+        const fileName = `resumo_venda_${clientName}.png`;
 
-            // Converter para canvas
-            const canvas = await html2canvas(receiptElement, {
-                backgroundColor: '#ffffff',
-                scale: 2,
-                logging: false,
-                useCORS: true,
-                allowTaint: true
-            });
-
-            // Converter para Blob
-            const blob = await new Promise<Blob>((resolve) => {
-                canvas.toBlob((blob) => resolve(blob!), 'image/png');
-            });
-
-            const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-            const fileName = `resumo_venda_${clientName}.png`;
-
+        try {
             // Tentar Web Share API (funciona melhor no mobile)
-            if (navigator.share && navigator.canShare) {
+            if (typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
                 const file = new File([blob], fileName, { type: 'image/png' });
-
-                const canShareFile = navigator.canShare({ files: [file] });
-
-                if (canShareFile) {
+                if (navigator.canShare({ files: [file] })) {
                     await navigator.share({
                         files: [file],
                         title: 'Resumo da Venda - Rubia Joias',
@@ -322,14 +359,15 @@ const Credit: React.FC = () => {
                 }
             }
 
-            // Fallback: Baixar imagem + abrir WhatsApp
-            // 1. Baixar a imagem primeiro
+            // Fallback desktop: Baixar imagem + abrir WhatsApp
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.download = fileName;
             link.href = url;
+            document.body.appendChild(link);
             link.click();
-            URL.revokeObjectURL(url);
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
 
             // 2. Abrir WhatsApp com mensagem (se tiver telefone)
             // Buscar telefone do cliente
@@ -352,10 +390,24 @@ const Credit: React.FC = () => {
             } else {
                 alert('✅ Resumo baixado! Como o cliente não possui telefone cadastrado, compartilhe manualmente via WhatsApp.');
             }
-
         } catch (error: any) {
+            // A imagem já foi capturada com sucesso nesse ponto. Se falhar aqui,
+            // é no share/download em si — tentamos o download direto como último recurso.
             console.error('Erro ao compartilhar:', error);
-            alert('❌ Erro ao compartilhar. Tente baixar o resumo manualmente.');
+            try {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.download = fileName;
+                link.href = url;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                alert('✅ Resumo baixado! Agora compartilhe manualmente no WhatsApp.');
+            } catch (fallbackError) {
+                console.error('Fallback também falhou:', fallbackError);
+                alert('❌ Erro ao compartilhar: ' + (error?.message || 'erro desconhecido'));
+            }
         }
     };
 
@@ -456,6 +508,7 @@ const Credit: React.FC = () => {
 
             alert('✅ Venda renegociada com sucesso!');
             closeRenegotiation();
+            cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao renegociar venda:', error);

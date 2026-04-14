@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { splitInstallments, roundMoney } from '../lib/format';
+import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import {
     Plus,
     Trash2,
@@ -59,7 +60,8 @@ const Financial: React.FC = () => {
     const [tempIdCounter, setTempIdCounter] = useState(1);
 
     // Estados para histórico
-    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const initialCachedExpenses = cacheGet<Expense[]>('financial_expenses');
+    const [expenses, setExpenses] = useState<Expense[]>(initialCachedExpenses || []);
     const [expandedExpense, setExpandedExpense] = useState<string | null>(null);
     const [installmentsByExpense, setInstallmentsByExpense] = useState<{ [key: string]: Installment[] }>({});
 
@@ -90,7 +92,9 @@ const Financial: React.FC = () => {
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            if (mountedRef.current) setExpenses(data || []);
+            if (!mountedRef.current) return;
+            setExpenses(data || []);
+            cacheSet('financial_expenses', data || []);
         } catch (error) {
             console.error('Error fetching expenses:', error);
         }
@@ -312,6 +316,8 @@ const Financial: React.FC = () => {
             setPaymentMethod('DINHEIRO');
             setProductItems([]);
 
+            cacheInvalidate('financial_expenses');
+            cacheInvalidate('inventory_products');
             fetchExpenses();
         } catch (error: any) {
             console.error('Error creating expense:', error);
@@ -353,6 +359,7 @@ const Financial: React.FC = () => {
             if (error) throw error;
 
             alert('✅ Despesa excluída com sucesso!');
+            cacheInvalidate('financial_expenses');
             fetchExpenses();
         } catch (error: any) {
             console.error('Error deleting expense:', error);
