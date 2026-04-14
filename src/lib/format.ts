@@ -2,6 +2,16 @@ export function roundMoney(n: number): number {
     return Math.round(n * 100) / 100;
 }
 
+export function formatCurrency(n: number): string {
+    if (!Number.isFinite(n)) return 'R$ 0,00';
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(n);
+}
+
 export function todayLocalISO(): string {
     const d = new Date();
     const year = d.getFullYear();

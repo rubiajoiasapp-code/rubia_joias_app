@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Search, CheckSquare, Eye, EyeOff } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
+import { formatCurrency } from '../lib/format';
 
 interface Product {
     id: string;
@@ -57,6 +58,12 @@ const Inventory: React.FC = () => {
     // Estado para seleção de produtos
     const [selectedProds, setSelectedProds] = useState<Set<string>>(new Set());
     const [processingBulk, setProcessingBulk] = useState(false);
+    const [showTopContributors, setShowTopContributors] = useState(false);
+    const [outlierModal, setOutlierModal] = useState<{
+        reasons: string[];
+        snapshot: { descricao: string; categoria: string; valorVenda: number; qtd: number };
+    } | null>(null);
+    const [outlierConfirmText, setOutlierConfirmText] = useState('');
 
     useEffect(() => {
         fetchProducts();
@@ -186,6 +193,59 @@ const Inventory: React.FC = () => {
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
+    const computeOutlierReasons = (
+        descricao: string,
+        categoria: string,
+        valorVenda: number,
+        qtd: number,
+    ): string[] => {
+        const reasons: string[] = [];
+        const others = products.filter(p => !editingProduct || p.id !== editingProduct.id);
+
+        const categoriaKey = categoria.trim().toLowerCase();
+        const sameCat = others.filter(
+            p => p.categoria.trim().toLowerCase() === categoriaKey && p.valor_venda > 0,
+        );
+        const globalWithPrice = others.filter(p => p.valor_venda > 0);
+
+        const median = (arr: number[]): number => {
+            if (!arr.length) return 0;
+            const sorted = [...arr].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+        };
+
+        if (valorVenda > 0) {
+            const pool = sameCat.length >= 3 ? sameCat : globalWithPrice;
+            const medianaValor = median(pool.map(p => p.valor_venda));
+            const poolLabel = sameCat.length >= 3 ? `categoria "${categoria}"` : 'todos os produtos';
+            if (medianaValor > 0) {
+                if (valorVenda > medianaValor * 3) {
+                    reasons.push(
+                        `💰 Preço ACIMA do padrão — ${formatCurrency(valorVenda)} é ${(valorVenda / medianaValor).toFixed(1)}× a mediana (${formatCurrency(medianaValor)}) de ${poolLabel}.`,
+                    );
+                } else if (valorVenda < medianaValor / 3) {
+                    reasons.push(
+                        `💰 Preço ABAIXO do padrão — ${formatCurrency(valorVenda)} é ${(medianaValor / valorVenda).toFixed(1)}× menor que a mediana (${formatCurrency(medianaValor)}) de ${poolLabel}.`,
+                    );
+                }
+            }
+        }
+
+        if (qtd > 10) {
+            const globalQtds = others.filter(p => p.quantidade_estoque > 0).map(p => p.quantidade_estoque);
+            const medianaQtd = median(globalQtds);
+            if (medianaQtd > 0 && qtd > medianaQtd * 5) {
+                reasons.push(
+                    `📦 Quantidade ACIMA do padrão — ${qtd} unidades é ${(qtd / medianaQtd).toFixed(1)}× a mediana (${medianaQtd} unid.) do estoque.`,
+                );
+            }
+        }
+
+        void descricao;
+        return reasons;
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (uploading) return;
@@ -207,6 +267,26 @@ const Inventory: React.FC = () => {
             return;
         }
 
+        const reasons = computeOutlierReasons(descricao, formData.categoria, valorVenda, qtd);
+        if (reasons.length > 0) {
+            setOutlierModal({
+                reasons,
+                snapshot: { descricao, categoria: formData.categoria.trim(), valorVenda, qtd },
+            });
+            setOutlierConfirmText('');
+            return;
+        }
+
+        await performSave(descricao, formData.categoria.trim(), valorVenda, qtd);
+    };
+
+    const performSave = async (
+        descricao: string,
+        categoria: string,
+        valorVenda: number,
+        qtd: number,
+    ) => {
+        if (uploading) return;
         setUploading(true);
 
         try {
@@ -238,7 +318,7 @@ const Inventory: React.FC = () => {
 
             const productData = {
                 descricao: descricao,
-                categoria: formData.categoria.trim(),
+                categoria: categoria,
                 valor_venda: valorVenda,
                 quantidade_estoque: qtd,
                 image_url: imageUrl
@@ -455,6 +535,14 @@ const Inventory: React.FC = () => {
         }
     };
 
+    const totalStockValue = products.reduce((total, p) => total + (p.valor_venda * p.quantidade_estoque), 0);
+    const totalUnits = products.reduce((total, p) => total + p.quantidade_estoque, 0);
+    const topContributors = [...products]
+        .map(p => ({ produto: p, stockValue: p.valor_venda * p.quantidade_estoque }))
+        .filter(x => x.stockValue > 0)
+        .sort((a, b) => b.stockValue - a.stockValue)
+        .slice(0, 10);
+
     return (
         <div>
             <h2 className="text-3xl font-bold text-gray-800 mb-6">Estoque</h2>
@@ -465,11 +553,19 @@ const Inventory: React.FC = () => {
                     <div>
                         <p className="text-sm font-medium text-pink-100 mb-1">💎 Valor Total em Estoque</p>
                         <p className="text-4xl font-bold tracking-tight">
-                            R$ {products.reduce((total, p) => total + (p.valor_venda * p.quantidade_estoque), 0).toFixed(2)}
+                            {formatCurrency(totalStockValue)}
                         </p>
                         <p className="text-xs text-pink-100 mt-2">
-                            {products.reduce((total, p) => total + p.quantidade_estoque, 0)} unidades • {products.length} produtos cadastrados
+                            {totalUnits} unidades • {products.length} produtos cadastrados
                         </p>
+                        {topContributors.length > 0 && (
+                            <button
+                                onClick={() => setShowTopContributors(v => !v)}
+                                className="mt-3 text-xs font-medium text-white bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-1.5 rounded-md transition-colors"
+                            >
+                                {showTopContributors ? '▴ Ocultar top 10' : '▾ Ver top 10 contribuintes'}
+                            </button>
+                        )}
                     </div>
                     <div className="hidden md:block">
                         <div className="bg-white bg-opacity-20 rounded-full p-4">
@@ -477,6 +573,36 @@ const Inventory: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                {showTopContributors && topContributors.length > 0 && (
+                    <div className="mt-4 bg-white bg-opacity-10 rounded-lg p-4 backdrop-blur-sm">
+                        <div className="flex items-center justify-between mb-3">
+                            <p className="text-sm font-semibold text-white">Top 10 produtos por valor em estoque</p>
+                            <button
+                                onClick={() => setShowTopContributors(false)}
+                                className="text-pink-100 hover:text-white"
+                                aria-label="Ocultar"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div className="space-y-1.5">
+                            {topContributors.map((item, idx) => {
+                                const pct = totalStockValue > 0 ? (item.stockValue / totalStockValue) * 100 : 0;
+                                return (
+                                    <div key={item.produto.id} className="flex items-center gap-3 text-xs bg-white bg-opacity-5 rounded px-3 py-2">
+                                        <span className="font-bold text-pink-100 w-6">{idx + 1}.</span>
+                                        <span className="flex-1 truncate font-medium">{item.produto.descricao}</span>
+                                        <span className="text-pink-100 whitespace-nowrap">
+                                            {item.produto.quantidade_estoque} × {formatCurrency(item.produto.valor_venda)}
+                                        </span>
+                                        <span className="font-semibold whitespace-nowrap w-28 text-right">{formatCurrency(item.stockValue)}</span>
+                                        <span className="text-pink-100 w-12 text-right">{pct.toFixed(1)}%</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Bulk Actions Bar */}
@@ -757,7 +883,7 @@ const Inventory: React.FC = () => {
                                             </div>
                                             {product.valor_custo && (
                                                 <div className="text-xs text-gray-400 mt-1">
-                                                    Custo: R$ {product.valor_custo.toFixed(2)}
+                                                    Custo: {formatCurrency(product.valor_custo)}
                                                 </div>
                                             )}
                                             {product.conta_pagar_id && (
@@ -785,7 +911,7 @@ const Inventory: React.FC = () => {
                                             </div>
                                         </td>
                                         <td className="p-4 font-medium">
-                                            R$ {product.valor_venda.toFixed(2)}
+                                            {formatCurrency(product.valor_venda)}
                                         </td>
                                         <td className="p-4">
                                             <span className={`px-3 py-1 rounded-full text-sm font-medium ${product.quantidade_estoque > 5
@@ -908,7 +1034,7 @@ const Inventory: React.FC = () => {
                                         </div>
                                         <div>
                                             <span className="text-sm text-gray-600">Valor Total:</span>
-                                            <p className="font-medium text-green-700 text-lg">R$ {selectedOrigin.valor_total.toFixed(2)}</p>
+                                            <p className="font-medium text-green-700 text-lg">{formatCurrency(selectedOrigin.valor_total)}</p>
                                         </div>
                                         {selectedOrigin.forma_pagamento && (
                                             <div>
@@ -938,6 +1064,75 @@ const Inventory: React.FC = () => {
                     </div>
                 )
             }
+
+            {/* Modal de Confirmação de Outlier */}
+            {outlierModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+                        <div className="bg-gradient-to-r from-amber-500 to-red-500 px-6 py-4">
+                            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                ⚠️ Valor fora do padrão
+                            </h3>
+                            <p className="text-amber-50 text-sm mt-1">
+                                Algo no cadastro de <strong>{outlierModal.snapshot.descricao || 'produto'}</strong> parece fora da rotina.
+                            </p>
+                        </div>
+                        <div className="p-6">
+                            <p className="text-sm text-gray-700 mb-3 font-medium">
+                                Detectamos o seguinte:
+                            </p>
+                            <ul className="space-y-2 mb-4">
+                                {outlierModal.reasons.map((r, i) => (
+                                    <li key={i} className="bg-amber-50 border-l-4 border-amber-400 p-3 rounded text-sm text-gray-800">
+                                        {r}
+                                    </li>
+                                ))}
+                            </ul>
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 text-xs text-gray-600 space-y-1">
+                                <div><strong>Produto:</strong> {outlierModal.snapshot.descricao}</div>
+                                <div><strong>Categoria:</strong> {outlierModal.snapshot.categoria || '—'}</div>
+                                <div><strong>Valor:</strong> {formatCurrency(outlierModal.snapshot.valorVenda)}</div>
+                                <div><strong>Quantidade:</strong> {outlierModal.snapshot.qtd} unid.</div>
+                            </div>
+                            <p className="text-sm text-gray-700 mb-2">
+                                Se tem certeza que está certo, digite <strong className="text-red-600">Confirmo</strong> abaixo e clique em Confirmar:
+                            </p>
+                            <input
+                                type="text"
+                                value={outlierConfirmText}
+                                onChange={(e) => setOutlierConfirmText(e.target.value)}
+                                placeholder='Digite "Confirmo"'
+                                autoFocus
+                                className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-amber-500 focus:outline-none"
+                            />
+                        </div>
+                        <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+                            <button
+                                onClick={() => {
+                                    setOutlierModal(null);
+                                    setOutlierConfirmText('');
+                                }}
+                                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    if (outlierConfirmText.trim().toLowerCase() !== 'confirmo') return;
+                                    const snap = outlierModal.snapshot;
+                                    setOutlierModal(null);
+                                    setOutlierConfirmText('');
+                                    await performSave(snap.descricao, snap.categoria, snap.valorVenda, snap.qtd);
+                                }}
+                                disabled={outlierConfirmText.trim().toLowerCase() !== 'confirmo'}
+                                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-red-500 text-white rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:from-amber-600 hover:to-red-600 transition-all"
+                            >
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Modal de Zoom de Imagem */}
             {
