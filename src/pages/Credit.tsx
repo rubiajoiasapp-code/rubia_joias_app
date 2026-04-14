@@ -66,6 +66,8 @@ const Credit: React.FC = () => {
         data_vencimento: '',
         pago: false
     });
+    // Recibo renderizado sob demanda — evita 156 recibos no DOM.
+    const [capturingSale, setCapturingSale] = useState<SaleWithInstallments | null>(null);
 
     const mountedRef = useRef(true);
 
@@ -261,59 +263,60 @@ const Credit: React.FC = () => {
         }
     };
 
-    // Helper: captura o recibo como canvas de forma robusta.
-    // O recibo fica renderizado em position:absolute left:-9999px e o html2canvas
-    // às vezes engasga nesse layout. Tornamos temporariamente visível fora da tela
-    // (via clone) antes de capturar, e ignoramos o <img> do logo quando há CORS.
-    const captureReceipt = async (saleId: string): Promise<Blob> => {
-        const receiptElement = document.getElementById(`receipt-${saleId}`);
-        if (!receiptElement) {
-            throw new Error('Elemento do recibo não encontrado no DOM.');
-        }
-
-        const canvas = await html2canvas(receiptElement, {
-            backgroundColor: '#ffffff',
-            scale: 2,
-            logging: false,
-            useCORS: true,
-            allowTaint: true,
-            // Ignora imagens externas que podem quebrar a captura por CORS.
-            // O logo fica só no header do recibo — se quebrar, o resto sai normal.
-            ignoreElements: (el) => {
-                if (el.tagName === 'IMG') {
-                    const img = el as HTMLImageElement;
-                    // Se a imagem não carregou completamente, ignora
-                    if (!img.complete || img.naturalHeight === 0) return true;
-                }
-                return false;
-            },
-            onclone: (clonedDoc) => {
-                // No clone, torna o recibo visível dentro da página (fora da tela original)
-                // para que html2canvas consiga medir os elementos corretamente.
-                const cloned = clonedDoc.getElementById(`receipt-${saleId}`);
-                if (cloned) {
-                    cloned.style.position = 'static';
-                    cloned.style.left = '0';
-                    cloned.style.top = '0';
-                }
+    // Captura o recibo como PNG. Renderiza o <SaleReceipt> sob demanda,
+    // aguarda 2 frames para garantir que está no DOM, captura, e desmonta.
+    const captureReceipt = async (sale: SaleWithInstallments): Promise<Blob> => {
+        setCapturingSale(sale);
+        // Espera o React montar o componente
+        await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+        try {
+            const el = document.getElementById(`receipt-${sale.id}`);
+            if (!el) {
+                throw new Error('Elemento do recibo não foi montado a tempo.');
             }
-        });
-
-        const blob = await new Promise<Blob | null>((resolve) => {
-            canvas.toBlob((b) => resolve(b), 'image/png');
-        });
-
-        if (!blob) {
-            throw new Error('Falha ao converter canvas em imagem.');
+            const canvas = await html2canvas(el, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: false,
+                useCORS: true,
+                allowTaint: true,
+                ignoreElements: (node) => {
+                    if (node.tagName === 'IMG') {
+                        const img = node as HTMLImageElement;
+                        if (!img.complete || img.naturalHeight === 0) return true;
+                    }
+                    return false;
+                },
+                onclone: (doc) => {
+                    // No clone, tira o recibo do position:absolute left:-9999px
+                    // para que html2canvas consiga medir os elementos corretamente.
+                    const clone = doc.getElementById(`receipt-${sale.id}`);
+                    if (clone) {
+                        clone.style.position = 'static';
+                        clone.style.left = '0';
+                        clone.style.top = '0';
+                    }
+                }
+            });
+            const blob = await new Promise<Blob | null>((r) => {
+                canvas.toBlob((b) => r(b), 'image/png');
+            });
+            if (!blob) {
+                throw new Error('Falha ao converter canvas em imagem.');
+            }
+            return blob;
+        } finally {
+            // Desmonta o recibo assim que termina (mesmo em caso de erro)
+            setCapturingSale(null);
         }
-        return blob;
     };
 
     const handleDownloadReceipt = async (sale: SaleWithInstallments) => {
         try {
-            const blob = await captureReceipt(sale.id);
+            const blob = await captureReceipt(sale);
 
-            // Download via ObjectURL (mais confiável que dataURL para imagens grandes)
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
@@ -335,80 +338,93 @@ const Credit: React.FC = () => {
     const handleShareWhatsApp = async (sale: SaleWithInstallments) => {
         let blob: Blob;
         try {
-            blob = await captureReceipt(sale.id);
-        } catch (error: any) {
-            console.error('Erro ao gerar imagem do recibo:', error);
-            alert('❌ Não consegui gerar a imagem do resumo.\n\nDetalhes: ' + (error?.message || 'erro desconhecido') + '\n\nTente baixar o resumo pelo botão azul.');
+            blob = await captureReceipt(sale);
+        } catch (err: any) {
+            console.error('Erro ao gerar imagem do recibo:', err);
+            alert('❌ Não consegui gerar o resumo. ' + (err?.message || 'erro desconhecido'));
             return;
         }
 
         const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-        const fileName = `resumo_venda_${clientName}.png`;
+        const fileName = `resumo_${clientName}.png`;
+        const textoPadrao = `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}. — Rubia Joias 💎`;
 
-        try {
-            // Tentar Web Share API (funciona melhor no mobile)
-            if (typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
-                const file = new File([blob], fileName, { type: 'image/png' });
-                if (navigator.canShare({ files: [file] })) {
+        // CAMADA 1: mobile nativo (navigator.share com arquivo)
+        if (typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+            const file = new File([blob], fileName, { type: 'image/png' });
+            if (navigator.canShare({ files: [file] })) {
+                try {
                     await navigator.share({
                         files: [file],
-                        title: 'Resumo da Venda - Rubia Joias',
-                        text: `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}.`
+                        title: 'Resumo de Venda — Rubia Joias',
+                        text: textoPadrao
                     });
-                    return;
+                    return; // sucesso
+                } catch (err: any) {
+                    // Usuário cancelou o share sheet: não é erro.
+                    if (err?.name === 'AbortError') return;
+                    console.warn('navigator.share falhou, tentando clipboard:', err);
+                    // cai para próxima camada
                 }
             }
+        }
 
-            // Fallback desktop: Baixar imagem + abrir WhatsApp
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.download = fileName;
-            link.href = url;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        // Busca telefone uma vez (usado pelas camadas 2 e 3)
+        const { data: clientData } = await supabase
+            .from('clientes')
+            .select('telefone')
+            .eq('id', sale.cliente_id)
+            .maybeSingle();
+        const phoneDigits = clientData?.telefone ? normalizePhone(clientData.telefone) : '';
+        const hasPhone = phoneDigits.length >= 10;
 
-            // 2. Abrir WhatsApp com mensagem (se tiver telefone)
-            // Buscar telefone do cliente
-            const { data: clientData } = await supabase
-                .from('clientes')
-                .select('telefone')
-                .eq('id', sale.cliente_id)
-                .single();
-
-            if (clientData?.telefone) {
-                const phone = normalizePhone(clientData.telefone);
-                const message = encodeURIComponent(
-                    `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}. A imagem foi baixada automaticamente, por favor anexe na conversa.`
-                );
-
-                // Abrir WhatsApp em nova aba
-                setTimeout(() => {
-                    window.open(`https://wa.me/55${phone}?text=${message}`, '_blank');
-                }, 500); // Pequeno delay para garantir que o download iniciou
-            } else {
-                alert('✅ Resumo baixado! Como o cliente não possui telefone cadastrado, compartilhe manualmente via WhatsApp.');
-            }
-        } catch (error: any) {
-            // A imagem já foi capturada com sucesso nesse ponto. Se falhar aqui,
-            // é no share/download em si — tentamos o download direto como último recurso.
-            console.error('Erro ao compartilhar:', error);
+        // CAMADA 2: desktop via clipboard + WhatsApp Web
+        if (typeof navigator.clipboard !== 'undefined' && typeof window.ClipboardItem !== 'undefined') {
             try {
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.download = fileName;
-                link.href = url;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-                alert('✅ Resumo baixado! Agora compartilhe manualmente no WhatsApp.');
-            } catch (fallbackError) {
-                console.error('Fallback também falhou:', fallbackError);
-                alert('❌ Erro ao compartilhar: ' + (error?.message || 'erro desconhecido'));
+                await navigator.clipboard.write([
+                    new ClipboardItem({ 'image/png': blob })
+                ]);
+
+                const message = encodeURIComponent(textoPadrao + '\n\n(📎 cole a imagem aqui com Ctrl+V)');
+                const waUrl = hasPhone
+                    ? `https://wa.me/55${phoneDigits}?text=${message}`
+                    : `https://web.whatsapp.com/`;
+                window.open(waUrl, '_blank', 'noopener,noreferrer');
+
+                alert(
+                    '✅ Imagem copiada para a área de transferência!\n\n' +
+                    'Agora no WhatsApp Web que acabou de abrir:\n' +
+                    '1. Selecione a conversa do cliente' + (hasPhone ? ' (já abrimos pra você)' : '') + '\n' +
+                    '2. Aperte Ctrl+V para colar a imagem\n' +
+                    '3. Pressione Enter para enviar'
+                );
+                return;
+            } catch (err) {
+                console.warn('Clipboard falhou, caindo no fallback de download:', err);
+                // cai para camada 3
             }
         }
+
+        // CAMADA 3: fallback final — download + instrução
+        const urlObj = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = urlObj;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(urlObj), 1000);
+
+        if (hasPhone) {
+            const message = encodeURIComponent(textoPadrao);
+            setTimeout(() => {
+                window.open(`https://wa.me/55${phoneDigits}?text=${message}`, '_blank');
+            }, 300);
+        }
+        alert(
+            '⚠️ Seu navegador não suporta copiar imagem diretamente.\n\n' +
+            'Baixei o PNG e abri o WhatsApp Web. Arraste a imagem para a conversa.'
+        );
     };
 
     const handleRenegotiate = async () => {
@@ -836,10 +852,8 @@ const Credit: React.FC = () => {
                 </div>
             )}
 
-            {/* Recibos invisíveis para exportação */}
-            {sales.map((sale) => (
-                <SaleReceipt key={`receipt-${sale.id}`} sale={sale} />
-            ))}
+            {/* Recibo renderizado sob demanda (só quando captura imagem) */}
+            {capturingSale && <SaleReceipt sale={capturingSale} />}
 
             {/* Modal de Renegociação */}
             {renegotiating && (
