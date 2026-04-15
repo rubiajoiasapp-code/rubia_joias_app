@@ -78,21 +78,25 @@ export function scoreBand(score: number): ScoreBand {
     };
 }
 
+// O score considera TODO o histórico desde a primeira venda da loja.
+// Os pesos dão 95 pontos pra métricas cumulativas (monetário + frequência + pontualidade)
+// e só 5 pontos pra recência, que é um bônus pequeno pra clientes ainda ativos.
+
 function scoreMonetario(totalGasto: number, maxGasto: number): number {
     if (totalGasto <= 0 || maxGasto <= 0) return 0;
-    // Escala logarítmica: suaviza diferenças muito grandes entre top e média.
-    // Normaliza sobre log do maior gastador.
+    // Escala logarítmica sobre o maior gastador histórico da loja.
+    // log suaviza diferenças muito grandes — não é "razão linear" e sim progressão.
     const ratio = Math.log10(1 + totalGasto) / Math.log10(1 + maxGasto);
-    return Math.round(Math.max(0, Math.min(1, ratio)) * 30);
+    return Math.round(Math.max(0, Math.min(1, ratio)) * 40);
 }
 
 function scoreFrequencia(numVendas: number): number {
     if (numVendas <= 0) return 0;
-    if (numVendas === 1) return 5;
-    if (numVendas <= 3) return 12;
-    if (numVendas <= 6) return 18;
-    if (numVendas <= 10) return 22;
-    return 25;
+    if (numVendas === 1) return 8;
+    if (numVendas <= 3) return 15;
+    if (numVendas <= 6) return 22;
+    if (numVendas <= 10) return 27;
+    return 30;
 }
 
 function scoreRecencia(ultimaCompraISO: string | null): number {
@@ -100,12 +104,12 @@ function scoreRecencia(ultimaCompraISO: string | null): number {
     const last = new Date(ultimaCompraISO);
     const now = new Date();
     const days = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
-    if (days < 0) return 20;
-    if (days <= 30) return 20;
-    if (days <= 90) return 16;
-    if (days <= 180) return 10;
-    if (days <= 365) return 5;
-    return 0;
+    // Pequeno bônus pra clientes ativos. Dormentes não são punidos com 0 — o cumulativo já conta.
+    if (days < 0) return 5;
+    if (days <= 60) return 5;
+    if (days <= 180) return 3;
+    if (days <= 365) return 2;
+    return 1;
 }
 
 function scorePontualidade(tier: ClientTier): number {

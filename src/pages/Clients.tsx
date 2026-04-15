@@ -357,7 +357,7 @@ const Clients: React.FC = () => {
                                         <span>🎯 Score (0–100 pts)</span>
                                     </h4>
                                     <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
-                                        Combina quanto o cliente gastou, com que frequência compra, quão recente foi a última compra e a pontualidade no pagamento.
+                                        Considera <strong>todo o histórico desde a primeira venda</strong> da loja. Combina: 💰 total gasto (40 pts) + 🔁 total de vendas (30 pts) + 💳 pontualidade no crediário (25 pts) + 📅 atividade recente (5 pts).
                                     </p>
                                     <div className="space-y-1.5">
                                         {[
@@ -450,10 +450,10 @@ const Clients: React.FC = () => {
                                         const tooltip =
                                             `Score: ${breakdown.total}/100 — ${band.label}\n` +
                                             `\n` +
-                                            `💰 Monetário: ${breakdown.monetario}/30 (R$ ${stats.totalGasto.toFixed(2)} gastos)\n` +
-                                            `🔁 Frequência: ${breakdown.frequencia}/25 (${stats.numVendas} venda${stats.numVendas === 1 ? '' : 's'})\n` +
-                                            `📅 Recência: ${breakdown.recencia}/20 (última: ${lastPurchaseLabel})\n` +
-                                            `💳 Pontualidade: ${breakdown.pontualidade}/25 (${info.short})`;
+                                            `💰 Monetário: ${breakdown.monetario}/40 (R$ ${stats.totalGasto.toFixed(2)} desde a 1ª venda)\n` +
+                                            `🔁 Frequência: ${breakdown.frequencia}/30 (${stats.numVendas} venda${stats.numVendas === 1 ? '' : 's'} no total)\n` +
+                                            `💳 Pontualidade: ${breakdown.pontualidade}/25 (${info.short})\n` +
+                                            `📅 Recência: ${breakdown.recencia}/5 (última: ${lastPurchaseLabel})`;
                                         return (
                                             <tr key={client.id} className={`border-t border-gray-100 hover:bg-gray-50 ${editingId === client.id ? 'bg-blue-50' : ''}`}>
                                                 <td className="p-4 text-center" title={tooltip}>
