@@ -472,23 +472,30 @@ const Inventory: React.FC = () => {
     };
 
     // Filtrar produtos baseado na busca e aba
-    const filteredProducts = products.filter(product => {
-        // Filtro de busca
-        const matchesSearch = searchTerm === '' ||
-            product.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            product.categoria?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            product.codigo.toLowerCase().includes(searchTerm.toLowerCase());
+    const filteredProducts = products
+        .filter(product => {
+            // Filtro de busca
+            const matchesSearch = searchTerm === '' ||
+                product.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                product.categoria?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                product.codigo.toLowerCase().includes(searchTerm.toLowerCase());
 
-        // Filtro de aba
-        let matchesTab = true;
-        if (filterTab === 'COM_ESTOQUE') {
-            matchesTab = product.quantidade_estoque > 0;
-        } else if (filterTab === 'SEM_ESTOQUE') {
-            matchesTab = product.quantidade_estoque === 0;
-        }
+            // Filtro de aba
+            let matchesTab = true;
+            if (filterTab === 'COM_ESTOQUE') {
+                matchesTab = product.quantidade_estoque > 0;
+            } else if (filterTab === 'SEM_ESTOQUE') {
+                matchesTab = product.quantidade_estoque === 0;
+            }
 
-        return matchesSearch && matchesTab;
-    });
+            return matchesSearch && matchesTab;
+        })
+        .sort((a, b) => {
+            const aZero = a.quantidade_estoque === 0;
+            const bZero = b.quantidade_estoque === 0;
+            if (aZero !== bZero) return aZero ? 1 : -1;
+            return (a.descricao || '').localeCompare(b.descricao || '', 'pt-BR');
+        });
 
     // Handlers para seleção
     const toggleSelect = (id: string) => {
