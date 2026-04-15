@@ -4,7 +4,9 @@ import { Pencil, Trash2, UserPlus, X, Edit3, Search } from 'lucide-react';
 import { normalizeCpf, normalizePhone, isValidCpf, formatCpf, formatPhone } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import type { ClientTier } from '../lib/clientTier';
-import { TIER_INFO, tierRank, fetchClientTierMap } from '../lib/clientTier';
+import { TIER_INFO, fetchClientTierMap } from '../lib/clientTier';
+import type { ClientStats, ScoreBreakdown } from '../lib/clientScore';
+import { computeScore, fetchClientStatsMap, maxGastoFromStats, scoreBand } from '../lib/clientScore';
 import { notify } from '../lib/notify';
 
 interface Client {
@@ -21,6 +23,7 @@ const Clients: React.FC = () => {
     const initialCached = cacheGet<Client[]>('clients_list');
     const [clients, setClients] = useState<Client[]>(initialCached || []);
     const [tierMap, setTierMap] = useState<Record<string, ClientTier>>({});
+    const [statsMap, setStatsMap] = useState<Record<string, ClientStats>>({});
     const [loading, setLoading] = useState(!initialCached);
     const [searchTerm, setSearchTerm] = useState('');
     const [formData, setFormData] = useState(emptyForm);
@@ -41,18 +44,20 @@ const Clients: React.FC = () => {
 
     const fetchClients = async () => {
         try {
-            const [clientsRes, tiers] = await Promise.all([
+            const [clientsRes, tiers, stats] = await Promise.all([
                 supabase
                     .from('clientes')
                     .select('*')
                     .order('created_at', { ascending: false }),
                 fetchClientTierMap(),
+                fetchClientStatsMap(),
             ]);
 
             if (clientsRes.error) throw clientsRes.error;
             if (!mountedRef.current) return;
             setClients(clientsRes.data || []);
             setTierMap(tiers);
+            setStatsMap(stats);
             cacheSet('clients_list', clientsRes.data || []);
         } catch (error) {
             console.error('Error fetching clients:', error);
@@ -64,10 +69,16 @@ const Clients: React.FC = () => {
     const getTier = (clientId: string): ClientTier =>
         tierMap[clientId] || 'NOVO';
 
+    const maxGasto = maxGastoFromStats(statsMap);
+    const getStats = (clientId: string): ClientStats =>
+        statsMap[clientId] || { totalGasto: 0, numVendas: 0, ultimaCompraISO: null };
+    const getScore = (clientId: string): ScoreBreakdown =>
+        computeScore(getStats(clientId), getTier(clientId), maxGasto);
+
     const sortedClients = [...clients].sort((a, b) => {
-        const ra = tierRank(getTier(a.id));
-        const rb = tierRank(getTier(b.id));
-        if (ra !== rb) return ra - rb;
+        const sa = getScore(a.id).total;
+        const sb = getScore(b.id).total;
+        if (sa !== sb) return sb - sa;
         return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
     });
 
@@ -322,27 +333,47 @@ const Clients: React.FC = () => {
                                 : `${sortedClients.length} clientes cadastrados`}
                         </p>
                     </div>
-                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="font-semibold text-gray-600 mr-1">Legenda:</span>
-                        {(['EXCELENTE', 'BOM', 'NOVO', 'ATENCAO', 'CRITICO'] as ClientTier[]).map(t => {
-                            const info = TIER_INFO[t];
-                            return (
-                                <span
-                                    key={t}
-                                    title={info.description}
-                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${info.bgClass} ${info.textClass} ${info.borderClass}`}
-                                >
-                                    <span>{info.emoji}</span>
-                                    <span>{info.short}</span>
-                                </span>
-                            );
-                        })}
+                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 space-y-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-gray-600 mr-1">Score:</span>
+                            {[90, 75, 60, 40, 20, 0].map(min => {
+                                const band = scoreBand(min);
+                                const label = `${min === 0 ? '0' : min}+`;
+                                return (
+                                    <span
+                                        key={min}
+                                        title={`${band.label}: ${min} pontos ou mais`}
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${band.bgClass} ${band.textClass} ${band.borderClass}`}
+                                    >
+                                        <span>{band.emoji}</span>
+                                        <span>{label} · {band.label}</span>
+                                    </span>
+                                );
+                            })}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-gray-600 mr-1">Pagador:</span>
+                            {(['EXCELENTE', 'BOM', 'NOVO', 'ATENCAO', 'CRITICO'] as ClientTier[]).map(t => {
+                                const info = TIER_INFO[t];
+                                return (
+                                    <span
+                                        key={t}
+                                        title={info.description}
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${info.bgClass} ${info.textClass} ${info.borderClass}`}
+                                    >
+                                        <span>{info.emoji}</span>
+                                        <span>{info.short}</span>
+                                    </span>
+                                );
+                            })}
+                        </div>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-gray-50 text-gray-600 text-sm">
-                                    <th className="p-4 font-medium">Classificação</th>
+                                    <th className="p-4 font-medium text-center">Score</th>
+                                    <th className="p-4 font-medium">Pagador</th>
                                     <th className="p-4 font-medium">Nome</th>
                                     <th className="p-4 font-medium">Contato</th>
                                     <th className="p-4 font-medium">CPF</th>
@@ -353,15 +384,15 @@ const Clients: React.FC = () => {
                             <tbody className="text-gray-700">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={6} className="p-4 text-center">Carregando...</td>
+                                        <td colSpan={7} className="p-4 text-center">Carregando...</td>
                                     </tr>
                                 ) : sortedClients.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="p-4 text-center">Nenhum cliente cadastrado.</td>
+                                        <td colSpan={7} className="p-4 text-center">Nenhum cliente cadastrado.</td>
                                     </tr>
                                 ) : visibleClients.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="p-4 text-center text-gray-500">
+                                        <td colSpan={7} className="p-4 text-center text-gray-500">
                                             Nenhum cliente encontrado para "{searchTerm}".
                                         </td>
                                     </tr>
@@ -369,8 +400,31 @@ const Clients: React.FC = () => {
                                     visibleClients.map((client) => {
                                         const tier = getTier(client.id);
                                         const info = TIER_INFO[tier];
+                                        const stats = getStats(client.id);
+                                        const breakdown = getScore(client.id);
+                                        const band = scoreBand(breakdown.total);
+                                        const lastPurchaseLabel = stats.ultimaCompraISO
+                                            ? new Date(stats.ultimaCompraISO).toLocaleDateString('pt-BR')
+                                            : '—';
+                                        const tooltip =
+                                            `Score: ${breakdown.total}/100 — ${band.label}\n` +
+                                            `\n` +
+                                            `💰 Monetário: ${breakdown.monetario}/30 (R$ ${stats.totalGasto.toFixed(2)} gastos)\n` +
+                                            `🔁 Frequência: ${breakdown.frequencia}/25 (${stats.numVendas} venda${stats.numVendas === 1 ? '' : 's'})\n` +
+                                            `📅 Recência: ${breakdown.recencia}/20 (última: ${lastPurchaseLabel})\n` +
+                                            `💳 Pontualidade: ${breakdown.pontualidade}/25 (${info.short})`;
                                         return (
                                             <tr key={client.id} className={`border-t border-gray-100 hover:bg-gray-50 ${editingId === client.id ? 'bg-blue-50' : ''}`}>
+                                                <td className="p-4 text-center" title={tooltip}>
+                                                    <div className="flex flex-col items-center gap-1">
+                                                        <span className={`inline-flex items-center justify-center w-12 h-12 rounded-full text-lg font-bold border-2 ${band.bgClass} ${band.textClass} ${band.borderClass}`}>
+                                                            {breakdown.total}
+                                                        </span>
+                                                        <span className={`text-[10px] font-medium ${band.textClass}`}>
+                                                            {band.emoji} {band.label}
+                                                        </span>
+                                                    </div>
+                                                </td>
                                                 <td className="p-4">
                                                     <span
                                                         title={info.description}
