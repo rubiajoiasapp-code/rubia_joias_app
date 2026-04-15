@@ -5,6 +5,7 @@ import html2canvas from 'html2canvas';
 import SaleReceipt from '../components/SaleReceipt';
 import { todayLocalISO, splitInstallments, roundMoney, normalizePhone } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
+import { notify } from '../lib/notify';
 
 interface Sale {
     id: string;
@@ -166,7 +167,7 @@ const Credit: React.FC = () => {
         } catch (error) {
             console.error('Erro ao buscar vendas parceladas:', error);
             if (mountedRef.current && sales.length === 0) {
-                alert('Erro ao carregar vendas parceladas');
+                notify.error('Erro ao carregar vendas parceladas');
             }
         } finally {
             if (mountedRef.current) setLoading(false);
@@ -187,11 +188,11 @@ const Credit: React.FC = () => {
 
         const valor = parseFloat(editForm.valor_parcela);
         if (!Number.isFinite(valor) || valor < 0) {
-            alert('Valor da parcela inválido.');
+            notify.warning('Valor da parcela inválido.');
             return;
         }
         if (!editForm.data_vencimento) {
-            alert('Data de vencimento inválida.');
+            notify.warning('Data de vencimento inválida.');
             return;
         }
 
@@ -208,13 +209,13 @@ const Credit: React.FC = () => {
 
             if (error) throw error;
 
-            alert('✅ Parcela atualizada com sucesso!');
+            notify.success('Parcela atualizada com sucesso!');
             closeEditing();
             cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao atualizar parcela:', error);
-            alert('Erro ao atualizar parcela: ' + error.message);
+            notify.error('Erro ao atualizar parcela', { description: error.message });
         }
     };
 
@@ -234,17 +235,19 @@ const Credit: React.FC = () => {
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao atualizar pagamento:', error);
-            alert('Erro ao atualizar pagamento: ' + error.message);
+            notify.error('Erro ao atualizar pagamento', { description: error.message });
         }
     };
 
     const handleDeleteSale = async (saleId: string, clientName: string) => {
-        const confirmDelete = window.confirm(
-            `Tem certeza que deseja excluir esta venda do cliente ${clientName}?\n\n` +
-            `ATENÇÃO: Isto irá excluir a venda, todas as parcelas associadas e os itens vendidos. Esta ação não pode ser desfeita!`
-        );
+        const ok = await notify.confirm({
+            title: `Excluir venda de ${clientName}?`,
+            description: 'Isto exclui a venda, todas as parcelas associadas e os itens vendidos. Essa ação não pode ser desfeita.',
+            confirmText: 'Excluir venda',
+            tone: 'danger',
+        });
 
-        if (!confirmDelete) return;
+        if (!ok) return;
 
         try {
             const { error } = await supabase
@@ -254,12 +257,12 @@ const Credit: React.FC = () => {
 
             if (error) throw error;
 
-            alert('✅ Venda excluída com sucesso!');
+            notify.success('Venda excluída com sucesso!');
             cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao excluir venda:', error);
-            alert('Erro ao excluir venda: ' + error.message);
+            notify.error('Erro ao excluir venda', { description: error.message });
         }
     };
 
@@ -328,10 +331,10 @@ const Credit: React.FC = () => {
             document.body.removeChild(link);
             setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-            alert('✅ Resumo baixado com sucesso!');
+            notify.success('Resumo baixado com sucesso!');
         } catch (error: any) {
             console.error('Erro ao gerar resumo:', error);
-            alert('❌ Erro ao gerar resumo: ' + (error?.message || 'tente novamente'));
+            notify.error('Erro ao gerar resumo', { description: error?.message || 'tente novamente' });
         }
     };
 
@@ -341,7 +344,7 @@ const Credit: React.FC = () => {
             blob = await captureReceipt(sale);
         } catch (err: any) {
             console.error('Erro ao gerar imagem do recibo:', err);
-            alert('❌ Não consegui gerar o resumo. ' + (err?.message || 'erro desconhecido'));
+            notify.error('Não consegui gerar o resumo', { description: err?.message || 'erro desconhecido' });
             return;
         }
 
@@ -391,13 +394,10 @@ const Credit: React.FC = () => {
                     : `https://web.whatsapp.com/`;
                 window.open(waUrl, '_blank', 'noopener,noreferrer');
 
-                alert(
-                    '✅ Imagem copiada para a área de transferência!\n\n' +
-                    'Agora no WhatsApp Web que acabou de abrir:\n' +
-                    '1. Selecione a conversa do cliente' + (hasPhone ? ' (já abrimos pra você)' : '') + '\n' +
-                    '2. Aperte Ctrl+V para colar a imagem\n' +
-                    '3. Pressione Enter para enviar'
-                );
+                notify.success('Imagem copiada para a área de transferência!', {
+                    description: `No WhatsApp Web: selecione a conversa${hasPhone ? ' (já abrimos)' : ''}, Ctrl+V para colar, Enter para enviar.`,
+                    duration: 10000,
+                });
                 return;
             } catch (err) {
                 console.warn('Clipboard falhou, caindo no fallback de download:', err);
@@ -421,10 +421,10 @@ const Credit: React.FC = () => {
                 window.open(`https://wa.me/55${phoneDigits}?text=${message}`, '_blank');
             }, 300);
         }
-        alert(
-            '⚠️ Seu navegador não suporta copiar imagem diretamente.\n\n' +
-            'Baixei o PNG e abri o WhatsApp Web. Arraste a imagem para a conversa.'
-        );
+        notify.warning('Imagem copiada não suportada neste navegador', {
+            description: 'Baixei o PNG e abri o WhatsApp. Arraste a imagem para a conversa.',
+            duration: 8000,
+        });
     };
 
     const handleRenegotiate = async () => {
@@ -435,30 +435,32 @@ const Credit: React.FC = () => {
         const saldoPendente = roundMoney(renegotiating.totalPendente);
 
         if (!Number.isFinite(newInstallments) || newInstallments < 1) {
-            alert('⚠️ Número de parcelas inválido.');
+            notify.warning('Número de parcelas inválido.');
             return;
         }
         if (downPayment < 0) {
-            alert('⚠️ Entrada não pode ser negativa.');
+            notify.warning('Entrada não pode ser negativa.');
             return;
         }
         if (downPayment > saldoPendente) {
-            alert('⚠️ Entrada não pode ser maior que o saldo pendente!');
+            notify.warning('Entrada não pode ser maior que o saldo pendente!');
             return;
         }
 
         const novoSaldo = roundMoney(saldoPendente - downPayment);
         const valores = splitInstallments(novoSaldo, newInstallments);
 
-        const confirmRenegotiate = window.confirm(
-            `Confirma renegociação da venda?\n\n` +
-            `Saldo pendente: R$ ${saldoPendente.toFixed(2)}\n` +
-            `Entrada: R$ ${downPayment.toFixed(2)}\n` +
-            `Novas parcelas: ${newInstallments}x de ~R$ ${(valores[0] || 0).toFixed(2)}\n\n` +
-            `As parcelas antigas não pagas serão canceladas.`
-        );
+        const ok = await notify.confirm({
+            title: 'Confirmar renegociação?',
+            description:
+                `Saldo pendente: R$ ${saldoPendente.toFixed(2)}\n` +
+                `Entrada: R$ ${downPayment.toFixed(2)}\n` +
+                `Novas parcelas: ${newInstallments}× de ~R$ ${(valores[0] || 0).toFixed(2)}\n\n` +
+                `As parcelas antigas não pagas serão canceladas.`,
+            confirmText: 'Renegociar',
+        });
 
-        if (!confirmRenegotiate) return;
+        if (!ok) return;
 
         try {
             const today = todayLocalISO();
@@ -522,13 +524,13 @@ const Credit: React.FC = () => {
 
             if (parcelasError) throw parcelasError;
 
-            alert('✅ Venda renegociada com sucesso!');
+            notify.success('Venda renegociada com sucesso!');
             closeRenegotiation();
             cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
         } catch (error: any) {
             console.error('Erro ao renegociar venda:', error);
-            alert('Erro ao renegociar venda: ' + error.message);
+            notify.error('Erro ao renegociar venda', { description: error.message });
         }
     };
 

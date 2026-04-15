@@ -5,6 +5,7 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import { nowLocalISO, todayLocalISO, splitInstallments, roundMoney } from '../lib/format';
 import type { ClientTier } from '../lib/clientTier';
 import { TIER_INFO, fetchClientTierMap } from '../lib/clientTier';
+import { notify } from '../lib/notify';
 
 interface Product {
     id: string;
@@ -67,7 +68,7 @@ const Sales: React.FC = () => {
             setProducts(data || []);
         } catch (error) {
             console.error('Error fetching products:', error);
-            if (mountedRef.current) alert('Erro ao carregar produtos.');
+            if (mountedRef.current) notify.error('Erro ao carregar produtos.');
         } finally {
             if (mountedRef.current) setLoading(false);
         }
@@ -94,7 +95,7 @@ const Sales: React.FC = () => {
 
         if (existingItem) {
             if (existingItem.quantity >= product.quantidade_estoque) {
-                alert('Quantidade máxima em estoque atingida!');
+                notify.warning('Quantidade máxima em estoque atingida!');
                 return;
             }
             setCart(cart.map(item =>
@@ -120,7 +121,7 @@ const Sales: React.FC = () => {
         }
 
         if (product && newQuantity > product.quantidade_estoque) {
-            alert('Quantidade não disponível em estoque!');
+            notify.warning('Quantidade não disponível em estoque!');
             return;
         }
 
@@ -151,7 +152,7 @@ const Sales: React.FC = () => {
             addToCart(product);
             setQrCode('');
         } else {
-            alert('Produto não encontrado com este código QR!');
+            notify.error('Produto não encontrado', { description: 'Nenhum produto com este código QR.' });
         }
     };
 
@@ -163,10 +164,10 @@ const Sales: React.FC = () => {
             if (product) {
                 addToCart(product);
                 setShowScanner(false);
-                alert(`✅ ${product.descricao} adicionado ao carrinho!`);
+                notify.success(`${product.descricao} adicionado ao carrinho!`);
             } else {
                 setShowScanner(false);
-                alert('Produto não encontrado com este código QR!');
+                notify.error('Produto não encontrado', { description: 'Nenhum produto com este código QR.' });
             }
         }
     };
@@ -184,17 +185,17 @@ const Sales: React.FC = () => {
         if (processingRef.current) return;
 
         if (cart.length === 0) {
-            alert('Adicione produtos ao carrinho!');
+            notify.warning('Adicione produtos ao carrinho!');
             return;
         }
 
         if (!selectedClient) {
-            alert('Selecione um cliente!');
+            notify.warning('Selecione um cliente!');
             return;
         }
 
         if (discount < 0 || discount > 100) {
-            alert('Desconto inválido.');
+            notify.warning('Desconto inválido.');
             return;
         }
 
@@ -204,11 +205,11 @@ const Sales: React.FC = () => {
 
         if (paymentMethod === 'FIADO') {
             if (!Number.isFinite(installments) || installments < 1) {
-                alert('Número de parcelas inválido.');
+                notify.warning('Número de parcelas inválido.');
                 return;
             }
             if (downPayment < 0 || downPayment > total) {
-                alert('Entrada inválida (não pode ser negativa ou maior que o total).');
+                notify.warning('Entrada inválida', { description: 'Não pode ser negativa ou maior que o total.' });
                 return;
             }
         }
@@ -305,7 +306,7 @@ const Sales: React.FC = () => {
 
                 if (parcelasError) {
                     console.error('Erro ao criar parcelas:', parcelasError);
-                    alert('⚠️ Venda criada, mas houve erro ao gerar parcelas. Verifique o crediário.');
+                    notify.warning('Venda criada, mas houve erro ao gerar parcelas', { description: 'Verifique o crediário.' });
                 }
             } else {
                 // Venda à vista - 1 parcela já paga para histórico e rastreabilidade
@@ -328,7 +329,7 @@ const Sales: React.FC = () => {
 
                 if (parcelasError) {
                     console.error('Erro ao criar registro no crediário:', parcelasError);
-                    alert('⚠️ Venda criada, mas houve erro ao registrar no crediário.');
+                    notify.warning('Venda criada, mas houve erro ao registrar no crediário.');
                 }
 
                 // Ignora agoraISO (não usado) - mantém função importada para consistência
@@ -356,13 +357,12 @@ const Sales: React.FC = () => {
             }
 
             if (stockFailures.length > 0) {
-                alert(
-                    '⚠️ Venda registrada, mas o estoque dos itens abaixo não pôde ser baixado ' +
-                    '(estoque insuficiente no momento da finalização). Verifique manualmente:\n\n' +
-                    stockFailures.join('\n')
-                );
+                notify.warning('Venda registrada com ressalvas', {
+                    description: `Estoque não baixado de: ${stockFailures.join(', ')}. Verifique manualmente.`,
+                    duration: 10000,
+                });
             } else {
-                alert('✅ Venda finalizada com sucesso!');
+                notify.success('Venda finalizada com sucesso!');
             }
 
             // Limpar carrinho e recarregar produtos
@@ -375,7 +375,7 @@ const Sales: React.FC = () => {
             fetchProducts();
         } catch (error: any) {
             console.error('Error finalizing sale:', error);
-            alert('Erro ao finalizar venda: ' + (error?.message || 'erro desconhecido'));
+            notify.error('Erro ao finalizar venda', { description: error?.message || 'erro desconhecido' });
         } finally {
             processingRef.current = false;
             if (mountedRef.current) setProcessing(false);

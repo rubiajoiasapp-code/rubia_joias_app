@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { todayLocalISO } from '../lib/format';
 import { cacheGet } from '../lib/cache';
+import { notify } from '../lib/notify';
 
 // ============ TYPES ============
 
@@ -340,7 +341,7 @@ const Historico: React.FC = () => {
             setSales(filtered);
         } catch (err: any) {
             console.error('Error fetching sales:', err);
-            alert('Erro ao buscar histórico: ' + (err?.message || 'tente novamente'));
+            notify.error('Erro ao buscar histórico', { description: err?.message || 'tente novamente' });
         } finally {
             if (mountedRef.current) setLoading(false);
         }

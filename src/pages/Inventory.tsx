@@ -4,6 +4,7 @@ import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Searc
 import { QRCodeSVG } from 'qrcode.react';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import { formatCurrency } from '../lib/format';
+import { notify } from '../lib/notify';
 
 interface Product {
     id: string;
@@ -108,12 +109,12 @@ const Inventory: React.FC = () => {
         if (!file) return;
 
         if (!file.type.startsWith('image/')) {
-            alert('Arquivo inválido: selecione uma imagem (JPG, PNG, WebP).');
+            notify.warning('Arquivo inválido', { description: 'Selecione uma imagem (JPG, PNG, WebP).' });
             if (fileInputRef.current) fileInputRef.current.value = '';
             return;
         }
         if (file.size > MAX_IMAGE_BYTES) {
-            alert('Imagem muito grande. Tamanho máximo: 5 MB.');
+            notify.warning('Imagem muito grande', { description: 'Tamanho máximo: 5 MB.' });
             if (fileInputRef.current) fileInputRef.current.value = '';
             return;
         }
@@ -253,17 +254,17 @@ const Inventory: React.FC = () => {
         // Validação
         const descricao = formData.descricao.trim();
         if (!descricao) {
-            alert('Informe o nome do produto.');
+            notify.warning('Informe o nome do produto.');
             return;
         }
         const valorVenda = parseFloat(formData.valor_venda);
         if (!Number.isFinite(valorVenda) || valorVenda < 0) {
-            alert('Valor de venda inválido.');
+            notify.warning('Valor de venda inválido.');
             return;
         }
         const qtd = parseInt(formData.quantidade_estoque, 10);
         if (!Number.isFinite(qtd) || qtd < 0) {
-            alert('Quantidade em estoque inválida (não pode ser negativa).');
+            notify.warning('Quantidade em estoque inválida', { description: 'Não pode ser negativa.' });
             return;
         }
 
@@ -311,7 +312,7 @@ const Inventory: React.FC = () => {
                     imageUploadFailed = true;
 
                     if (uploadError.message === 'BUCKET_NOT_FOUND') {
-                        alert('⚠️ ATENÇÃO: Bucket de imagens não configurado!');
+                        notify.warning('Bucket de imagens não configurado', { description: 'Configure no Supabase Storage para habilitar uploads.' });
                     }
                 }
             }
@@ -333,7 +334,7 @@ const Inventory: React.FC = () => {
                     .eq('id', editingProduct.id);
 
                 if (error) throw error;
-                alert('✅ Produto atualizado com sucesso!');
+                notify.success('Produto atualizado com sucesso!');
             } else {
                 // Insert new product
                 console.log('💾 Salvando novo produto...');
@@ -346,11 +347,11 @@ const Inventory: React.FC = () => {
 
                 if (error) throw error;
 
-                let successMessage = '✅ Produto cadastrado com sucesso!';
                 if (imageUploadFailed && selectedFile) {
-                    successMessage += '\n\n⚠️ Porém, a imagem NÃO foi carregada.';
+                    notify.success('Produto cadastrado', { description: 'A imagem NÃO foi carregada — verifique o bucket de Storage.' });
+                } else {
+                    notify.success('Produto cadastrado com sucesso!');
                 }
-                alert(successMessage);
             }
 
             cancelEditing(); // Resets form and state
@@ -358,14 +359,20 @@ const Inventory: React.FC = () => {
             fetchProducts();
         } catch (error: any) {
             console.error('Error saving product:', error);
-            alert('Erro ao salvar produto: ' + error.message);
+            notify.error('Erro ao salvar produto', { description: error.message });
         } finally {
             setUploading(false);
         }
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+        const ok = await notify.confirm({
+            title: 'Excluir produto?',
+            description: 'Essa ação não pode ser desfeita.',
+            confirmText: 'Excluir',
+            tone: 'danger',
+        });
+        if (!ok) return;
 
         try {
             const { error } = await supabase
@@ -379,9 +386,9 @@ const Inventory: React.FC = () => {
         } catch (error: any) {
             console.error('Error deleting product:', error);
             if (error.code === '23503') {
-                alert('❌ Não é possível excluir este produto pois ele já possui vendas registradas.\n\nPara manter o histórico de vendas, produtos vendidos não podem ser apagados.');
+                notify.error('Não é possível excluir este produto', { description: 'Ele já possui vendas registradas. Produtos vendidos não podem ser apagados para manter o histórico.' });
             } else {
-                alert('Erro ao excluir produto: ' + (error.message || 'Erro desconhecido'));
+                notify.error('Erro ao excluir produto', { description: error.message || 'Erro desconhecido' });
             }
         }
     };
@@ -396,7 +403,7 @@ const Inventory: React.FC = () => {
         const quantity = parseInt(quantityStr);
 
         if (isNaN(quantity) || quantity <= 0) {
-            alert('⚠️ Por favor, insira uma quantidade válida.');
+            notify.warning('Quantidade inválida', { description: 'Informe um número maior que zero.' });
             return;
         }
 
@@ -410,24 +417,24 @@ const Inventory: React.FC = () => {
 
             if (error) throw error;
 
-            alert(`✅ Estoque atualizado!\n\nAnterior: ${product.quantidade_estoque} unid.\nAdicionado: +${quantity} unid.\nNovo total: ${newStock} unid.`);
+            notify.success('Estoque atualizado', { description: `${product.quantidade_estoque} → ${newStock} unid. (+${quantity})` });
             cacheInvalidate('inventory_products');
             fetchProducts();
         } catch (error) {
             console.error('Error updating stock:', error);
-            alert('Erro ao atualizar estoque.');
+            notify.error('Erro ao atualizar estoque.');
         }
     };
 
     const handlePrintQR = (productCode: string) => {
         const qrElement = document.getElementById(`qr-${productCode}`);
         if (!qrElement) {
-            alert('QR Code não encontrado. Tente novamente.');
+            notify.error('QR Code não encontrado', { description: 'Tente novamente.' });
             return;
         }
         const printWindow = window.open('', '', 'width=400,height=400');
         if (!printWindow) {
-            alert('Pop-up bloqueado. Permita pop-ups para imprimir o QR Code.');
+            notify.warning('Pop-up bloqueado', { description: 'Permita pop-ups para imprimir o QR Code.' });
             return;
         }
         printWindow.document.write('<html><head><title>QR Code</title></head><body>');
@@ -459,7 +466,7 @@ const Inventory: React.FC = () => {
 
             if (error) throw error;
             if (!data) {
-                alert('Origem do produto não encontrada (registro pode ter sido removido).');
+                notify.warning('Origem não encontrada', { description: 'O registro pode ter sido removido.' });
                 return;
             }
 
@@ -467,7 +474,7 @@ const Inventory: React.FC = () => {
             setShowOriginModal(true);
         } catch (error) {
             console.error('Error fetching purchase origin:', error);
-            alert('Erro ao buscar origem do produto');
+            notify.error('Erro ao buscar origem do produto');
         }
     };
 
@@ -519,7 +526,12 @@ const Inventory: React.FC = () => {
     const handleBulkCatalogUpdate = async (show: boolean) => {
         if (selectedProds.size === 0) return;
         const action = show ? 'mostrar no catálogo' : 'ocultar do catálogo';
-        if (!confirm(`Confirma ${action} ${selectedProds.size} produto(s)?`)) return;
+        const ok = await notify.confirm({
+            title: `Confirmar ação em lote?`,
+            description: `${action} ${selectedProds.size} produto(s) selecionado(s).`,
+            confirmText: 'Confirmar',
+        });
+        if (!ok) return;
         setProcessingBulk(true);
 
         try {
@@ -530,13 +542,13 @@ const Inventory: React.FC = () => {
 
             if (error) throw error;
 
-            alert(`✅ ${selectedProds.size} produtos ${show ? 'adicionados ao' : 'removidos do'} catálogo com sucesso!`);
+            notify.success(`${selectedProds.size} produtos atualizados`, { description: show ? 'Adicionados ao catálogo.' : 'Removidos do catálogo.' });
             setSelectedProds(new Set()); // Clear selection
             cacheInvalidate('inventory_products');
             fetchProducts();
         } catch (error: any) {
             console.error('Error updating catalog status:', error);
-            alert('Erro ao atualizar catálogo: ' + error.message);
+            notify.error('Erro ao atualizar catálogo', { description: error.message });
         } finally {
             setProcessingBulk(false);
         }

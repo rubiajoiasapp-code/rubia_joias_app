@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { splitInstallments, roundMoney } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
+import { notify } from '../lib/notify';
 import {
     Plus,
     Trash2,
@@ -178,29 +179,29 @@ const Financial: React.FC = () => {
         // Validação
         const nome = supplierName.trim();
         if (!nome) {
-            alert('Informe o nome do fornecedor.');
+            notify.warning('Informe o nome do fornecedor.');
             return;
         }
         const valor = parseFloat(totalValue);
         if (!Number.isFinite(valor) || valor <= 0) {
-            alert('Valor total inválido.');
+            notify.warning('Valor total inválido.');
             return;
         }
         if (!Number.isFinite(installmentsCount) || installmentsCount < 1) {
-            alert('Número de parcelas inválido.');
+            notify.warning('Número de parcelas inválido.');
             return;
         }
         for (const item of productItems) {
             if (!item.descricao.trim()) {
-                alert('Todos os produtos precisam ter descrição.');
+                notify.warning('Todos os produtos precisam ter descrição.');
                 return;
             }
             if (!Number.isFinite(item.quantidade) || item.quantidade < 1) {
-                alert('Quantidade de produto inválida.');
+                notify.warning('Quantidade de produto inválida.');
                 return;
             }
             if (!Number.isFinite(item.valor_custo) || item.valor_custo < 0) {
-                alert('Valor de custo inválido.');
+                notify.warning('Valor de custo inválido.');
                 return;
             }
         }
@@ -302,7 +303,7 @@ const Financial: React.FC = () => {
                 if (productsError) throw productsError;
             }
 
-            alert('✅ Despesa cadastrada com sucesso!');
+            notify.success('Despesa cadastrada com sucesso!');
 
             // Limpar formulário
             setSupplierName('');
@@ -321,7 +322,7 @@ const Financial: React.FC = () => {
             fetchExpenses();
         } catch (error: any) {
             console.error('Error creating expense:', error);
-            alert('Erro ao cadastrar despesa: ' + (error?.message || 'erro desconhecido'));
+            notify.error('Erro ao cadastrar despesa', { description: error?.message || 'erro desconhecido' });
         } finally {
             submittingRef.current = false;
             if (mountedRef.current) setSubmitting(false);
@@ -346,9 +347,13 @@ const Financial: React.FC = () => {
     };
 
     const handleDeleteExpense = async (expenseId: string) => {
-        if (!confirm('Tem certeza que deseja excluir esta despesa?\n\nAs parcelas também serão excluídas.')) {
-            return;
-        }
+        const ok = await notify.confirm({
+            title: 'Excluir despesa?',
+            description: 'As parcelas também serão excluídas. Essa ação não pode ser desfeita.',
+            confirmText: 'Excluir',
+            tone: 'danger',
+        });
+        if (!ok) return;
 
         try {
             const { error } = await supabase
@@ -358,12 +363,12 @@ const Financial: React.FC = () => {
 
             if (error) throw error;
 
-            alert('✅ Despesa excluída com sucesso!');
+            notify.success('Despesa excluída com sucesso!');
             cacheInvalidate('financial_expenses');
             fetchExpenses();
         } catch (error: any) {
             console.error('Error deleting expense:', error);
-            alert('Erro ao excluir despesa: ' + error.message);
+            notify.error('Erro ao excluir despesa', { description: error.message });
         }
     };
 
@@ -383,11 +388,11 @@ const Financial: React.FC = () => {
     const saveInstallment = async (installmentId: string) => {
         const valor = parseFloat(editData.valor_parcela);
         if (!Number.isFinite(valor) || valor < 0) {
-            alert('Valor da parcela inválido.');
+            notify.warning('Valor da parcela inválido.');
             return;
         }
         if (!editData.data_vencimento) {
-            alert('Data de vencimento inválida.');
+            notify.warning('Data de vencimento inválida.');
             return;
         }
         try {
@@ -401,7 +406,7 @@ const Financial: React.FC = () => {
 
             if (error) throw error;
 
-            alert('✅ Parcela atualizada com sucesso!');
+            notify.success('Parcela atualizada com sucesso!');
             cancelEditing();
 
             if (expandedExpense) {
@@ -409,7 +414,7 @@ const Financial: React.FC = () => {
             }
         } catch (error: any) {
             console.error('Error updating installment:', error);
-            alert('Erro ao atualizar parcela: ' + error.message);
+            notify.error('Erro ao atualizar parcela', { description: error.message });
         }
     };
 

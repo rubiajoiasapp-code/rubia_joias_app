@@ -4,6 +4,7 @@ import { Calendar, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { format, parseISO, isSameMonth, startOfMonth, isBefore, isToday, differenceInCalendarDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { todayLocalISO } from '../lib/format';
+import { notify } from '../lib/notify';
 
 interface Installment {
     id: string;
@@ -103,7 +104,7 @@ const ExpirationDates: React.FC = () => {
             ));
         } catch (error) {
             console.error('Error updating installment:', error);
-            alert('Erro ao marcar como pago');
+            notify.error('Erro ao marcar como pago');
         }
     };
 

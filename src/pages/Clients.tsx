@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Pencil, Trash2, UserPlus, X, Edit3 } from 'lucide-react';
+import { Pencil, Trash2, UserPlus, X, Edit3, Search } from 'lucide-react';
 import { normalizeCpf, normalizePhone, isValidCpf, formatCpf, formatPhone } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import type { ClientTier } from '../lib/clientTier';
 import { TIER_INFO, tierRank, fetchClientTierMap } from '../lib/clientTier';
+import { notify } from '../lib/notify';
 
 interface Client {
     id: string;
@@ -21,6 +22,7 @@ const Clients: React.FC = () => {
     const [clients, setClients] = useState<Client[]>(initialCached || []);
     const [tierMap, setTierMap] = useState<Record<string, ClientTier>>({});
     const [loading, setLoading] = useState(!initialCached);
+    const [searchTerm, setSearchTerm] = useState('');
     const [formData, setFormData] = useState(emptyForm);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
@@ -69,6 +71,20 @@ const Clients: React.FC = () => {
         return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
     });
 
+    const needle = searchTerm.trim().toLowerCase();
+    const needleDigits = needle.replace(/\D/g, '');
+    const visibleClients = needle === '' ? sortedClients : sortedClients.filter(c => {
+        const nome = (c.nome || '').toLowerCase();
+        const endereco = (c.endereco || '').toLowerCase();
+        const cpfDigits = (c.cpf || '').replace(/\D/g, '');
+        const phoneDigits = (c.telefone || '').replace(/\D/g, '');
+        return (
+            nome.includes(needle) ||
+            endereco.includes(needle) ||
+            (needleDigits !== '' && (cpfDigits.includes(needleDigits) || phoneDigits.includes(needleDigits)))
+        );
+    });
+
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
@@ -101,16 +117,18 @@ const Clients: React.FC = () => {
         // Validação
         const nome = formData.nome.trim();
         if (!nome) {
-            alert('Informe o nome do cliente.');
+            notify.warning('Informe o nome do cliente.');
             return;
         }
 
         const cpfRaw = formData.cpf.trim();
         const cpfNormalizado = cpfRaw ? normalizeCpf(cpfRaw) : '';
         if (cpfNormalizado && !isValidCpf(cpfNormalizado)) {
-            const continuar = confirm(
-                'O CPF informado parece inválido (dígitos verificadores não batem). Deseja salvar mesmo assim?'
-            );
+            const continuar = await notify.confirm({
+                title: 'CPF parece inválido',
+                description: 'Os dígitos verificadores não batem. Deseja salvar mesmo assim?',
+                confirmText: 'Salvar mesmo assim',
+            });
             if (!continuar) return;
         }
 
@@ -134,7 +152,7 @@ const Clients: React.FC = () => {
                     .eq('id', editingId);
 
                 if (error) throw error;
-                alert('✅ Cliente atualizado com sucesso!');
+                notify.success('Cliente atualizado com sucesso!');
             } else {
                 const { error } = await supabase
                     .from('clientes')
@@ -142,7 +160,7 @@ const Clients: React.FC = () => {
                     .select();
 
                 if (error) throw error;
-                alert('✅ Cliente cadastrado com sucesso!');
+                notify.success('Cliente cadastrado com sucesso!');
             }
             resetForm();
             cacheInvalidate('clients_list');
@@ -150,15 +168,15 @@ const Clients: React.FC = () => {
         } catch (error) {
             console.error('❌ Error saving client:', error);
             const err = error as { code?: string; message?: string };
-            let errorMessage = editingId ? 'Erro ao atualizar cliente.' : 'Erro ao cadastrar cliente.';
             if (err.code === '23505') {
-                errorMessage = '⚠️ Este CPF já está cadastrado em outro cliente!';
+                notify.error('CPF já cadastrado', { description: 'Este CPF pertence a outro cliente.' });
             } else if (err.message?.includes('Failed to fetch')) {
-                errorMessage = '❌ Erro de conexão com o banco de dados. Verifique sua conexão e as credenciais.';
-            } else if (err.message) {
-                errorMessage += '\n\nDetalhes: ' + err.message;
+                notify.error('Erro de conexão', { description: 'Verifique sua conexão e as credenciais.' });
+            } else {
+                notify.error(editingId ? 'Erro ao atualizar cliente' : 'Erro ao cadastrar cliente', {
+                    description: err.message,
+                });
             }
-            alert(errorMessage);
         } finally {
             submittingRef.current = false;
             if (mountedRef.current) setSubmitting(false);
@@ -166,7 +184,13 @@ const Clients: React.FC = () => {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Tem certeza que deseja excluir este cliente?')) return;
+        const ok = await notify.confirm({
+            title: 'Excluir cliente?',
+            description: 'Essa ação não pode ser desfeita.',
+            confirmText: 'Excluir',
+            tone: 'danger',
+        });
+        if (!ok) return;
 
         try {
             const { error } = await supabase
@@ -175,15 +199,16 @@ const Clients: React.FC = () => {
                 .eq('id', id);
 
             if (error) throw error;
+            notify.success('Cliente excluído com sucesso!');
             cacheInvalidate('clients_list');
             fetchClients();
         } catch (error) {
             console.error('Error deleting client:', error);
             const err = error as { code?: string; message?: string };
             if (err.code === '23503') {
-                alert('❌ Não é possível excluir: este cliente possui vendas registradas.');
+                notify.error('Não é possível excluir', { description: 'Este cliente possui vendas registradas.' });
             } else {
-                alert('Erro ao excluir cliente: ' + (err?.message || 'erro desconhecido'));
+                notify.error('Erro ao excluir cliente', { description: err?.message || 'erro desconhecido' });
             }
         }
     };
@@ -270,6 +295,33 @@ const Clients: React.FC = () => {
 
                 {/* List Section */}
                 <div className="lg:col-span-2 bg-white rounded-lg shadow-md overflow-hidden">
+                    <div className="p-4 border-b border-gray-100">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                placeholder="Buscar por nome, CPF, telefone ou endereço..."
+                                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                            />
+                            {searchTerm && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 p-1"
+                                    title="Limpar"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                            {needle
+                                ? `${visibleClients.length} de ${sortedClients.length} clientes encontrados`
+                                : `${sortedClients.length} clientes cadastrados`}
+                        </p>
+                    </div>
                     <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex flex-wrap items-center gap-2 text-xs">
                         <span className="font-semibold text-gray-600 mr-1">Legenda:</span>
                         {(['EXCELENTE', 'BOM', 'NOVO', 'ATENCAO', 'CRITICO'] as ClientTier[]).map(t => {
@@ -307,8 +359,14 @@ const Clients: React.FC = () => {
                                     <tr>
                                         <td colSpan={6} className="p-4 text-center">Nenhum cliente cadastrado.</td>
                                     </tr>
+                                ) : visibleClients.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} className="p-4 text-center text-gray-500">
+                                            Nenhum cliente encontrado para "{searchTerm}".
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    sortedClients.map((client) => {
+                                    visibleClients.map((client) => {
                                         const tier = getTier(client.id);
                                         const info = TIER_INFO[tier];
                                         return (

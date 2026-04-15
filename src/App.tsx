@@ -1,7 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
+import ConfirmDialog from './components/ConfirmDialog';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Sales from './pages/Sales';
@@ -22,6 +24,8 @@ const DISABLE_AUTH =
 function App() {
   return (
     <AuthProvider>
+      <Toaster position="top-center" richColors closeButton expand />
+      <ConfirmDialog />
       <Router>
         <Routes>
           {/* Public Routes */}
