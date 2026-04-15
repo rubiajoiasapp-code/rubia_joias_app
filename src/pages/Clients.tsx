@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase';
 import { Pencil, Trash2, UserPlus, X, Edit3 } from 'lucide-react';
 import { normalizeCpf, normalizePhone, isValidCpf, formatCpf, formatPhone } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
+import type { ClientTier } from '../lib/clientTier';
+import { TIER_INFO, tierRank, fetchClientTierMap } from '../lib/clientTier';
 
 interface Client {
     id: string;
@@ -17,6 +19,7 @@ const emptyForm = { nome: '', cpf: '', endereco: '', telefone: '' };
 const Clients: React.FC = () => {
     const initialCached = cacheGet<Client[]>('clients_list');
     const [clients, setClients] = useState<Client[]>(initialCached || []);
+    const [tierMap, setTierMap] = useState<Record<string, ClientTier>>({});
     const [loading, setLoading] = useState(!initialCached);
     const [formData, setFormData] = useState(emptyForm);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -36,21 +39,35 @@ const Clients: React.FC = () => {
 
     const fetchClients = async () => {
         try {
-            const { data, error } = await supabase
-                .from('clientes')
-                .select('*')
-                .order('created_at', { ascending: false });
+            const [clientsRes, tiers] = await Promise.all([
+                supabase
+                    .from('clientes')
+                    .select('*')
+                    .order('created_at', { ascending: false }),
+                fetchClientTierMap(),
+            ]);
 
-            if (error) throw error;
+            if (clientsRes.error) throw clientsRes.error;
             if (!mountedRef.current) return;
-            setClients(data || []);
-            cacheSet('clients_list', data || []);
+            setClients(clientsRes.data || []);
+            setTierMap(tiers);
+            cacheSet('clients_list', clientsRes.data || []);
         } catch (error) {
             console.error('Error fetching clients:', error);
         } finally {
             if (mountedRef.current) setLoading(false);
         }
     };
+
+    const getTier = (clientId: string): ClientTier =>
+        tierMap[clientId] || 'NOVO';
+
+    const sortedClients = [...clients].sort((a, b) => {
+        const ra = tierRank(getTier(a.id));
+        const rb = tierRank(getTier(b.id));
+        if (ra !== rb) return ra - rb;
+        return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+    });
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -253,10 +270,27 @@ const Clients: React.FC = () => {
 
                 {/* List Section */}
                 <div className="lg:col-span-2 bg-white rounded-lg shadow-md overflow-hidden">
+                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-semibold text-gray-600 mr-1">Legenda:</span>
+                        {(['EXCELENTE', 'BOM', 'NOVO', 'ATENCAO', 'CRITICO'] as ClientTier[]).map(t => {
+                            const info = TIER_INFO[t];
+                            return (
+                                <span
+                                    key={t}
+                                    title={info.description}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${info.bgClass} ${info.textClass} ${info.borderClass}`}
+                                >
+                                    <span>{info.emoji}</span>
+                                    <span>{info.short}</span>
+                                </span>
+                            );
+                        })}
+                    </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-gray-50 text-gray-600 text-sm">
+                                    <th className="p-4 font-medium">Classificação</th>
                                     <th className="p-4 font-medium">Nome</th>
                                     <th className="p-4 font-medium">Contato</th>
                                     <th className="p-4 font-medium">CPF</th>
@@ -267,37 +301,50 @@ const Clients: React.FC = () => {
                             <tbody className="text-gray-700">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={5} className="p-4 text-center">Carregando...</td>
+                                        <td colSpan={6} className="p-4 text-center">Carregando...</td>
                                     </tr>
-                                ) : clients.length === 0 ? (
+                                ) : sortedClients.length === 0 ? (
                                     <tr>
-                                        <td colSpan={5} className="p-4 text-center">Nenhum cliente cadastrado.</td>
+                                        <td colSpan={6} className="p-4 text-center">Nenhum cliente cadastrado.</td>
                                     </tr>
                                 ) : (
-                                    clients.map((client) => (
-                                        <tr key={client.id} className={`border-t border-gray-100 hover:bg-gray-50 ${editingId === client.id ? 'bg-blue-50' : ''}`}>
-                                            <td className="p-4 font-medium">{client.nome}</td>
-                                            <td className="p-4">{formatPhone(client.telefone || '')}</td>
-                                            <td className="p-4">{formatCpf(client.cpf || '')}</td>
-                                            <td className="p-4">{client.endereco}</td>
-                                            <td className="p-4 flex justify-center space-x-2">
-                                                <button
-                                                    onClick={() => handleEdit(client)}
-                                                    className="text-gray-400 hover:text-blue-500"
-                                                    title="Editar"
-                                                >
-                                                    <Pencil className="w-5 h-5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(client.id)}
-                                                    className="text-gray-400 hover:text-red-500"
-                                                    title="Excluir"
-                                                >
-                                                    <Trash2 className="w-5 h-5" />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
+                                    sortedClients.map((client) => {
+                                        const tier = getTier(client.id);
+                                        const info = TIER_INFO[tier];
+                                        return (
+                                            <tr key={client.id} className={`border-t border-gray-100 hover:bg-gray-50 ${editingId === client.id ? 'bg-blue-50' : ''}`}>
+                                                <td className="p-4">
+                                                    <span
+                                                        title={info.description}
+                                                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${info.bgClass} ${info.textClass} ${info.borderClass}`}
+                                                    >
+                                                        <span>{info.emoji}</span>
+                                                        <span>{info.short}</span>
+                                                    </span>
+                                                </td>
+                                                <td className="p-4 font-medium">{client.nome}</td>
+                                                <td className="p-4">{formatPhone(client.telefone || '')}</td>
+                                                <td className="p-4">{formatCpf(client.cpf || '')}</td>
+                                                <td className="p-4">{client.endereco}</td>
+                                                <td className="p-4 flex justify-center space-x-2">
+                                                    <button
+                                                        onClick={() => handleEdit(client)}
+                                                        className="text-gray-400 hover:text-blue-500"
+                                                        title="Editar"
+                                                    >
+                                                        <Pencil className="w-5 h-5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDelete(client.id)}
+                                                        className="text-gray-400 hover:text-red-500"
+                                                        title="Excluir"
+                                                    >
+                                                        <Trash2 className="w-5 h-5" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>

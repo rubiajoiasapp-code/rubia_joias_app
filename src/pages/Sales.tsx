@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase';
 import { ShoppingCart, Search, QrCode, Package as PackageIcon, Trash2, CreditCard, Camera, X, ArrowDown } from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { nowLocalISO, todayLocalISO, splitInstallments, roundMoney } from '../lib/format';
+import type { ClientTier } from '../lib/clientTier';
+import { TIER_INFO, fetchClientTierMap } from '../lib/clientTier';
 
 interface Product {
     id: string;
@@ -26,6 +28,7 @@ interface CartItem extends Product {
 const Sales: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
+    const [tierMap, setTierMap] = useState<Record<string, ClientTier>>({});
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedClient, setSelectedClient] = useState<string>('');
     const [paymentMethod, setPaymentMethod] = useState<string>('PIX');
@@ -72,14 +75,15 @@ const Sales: React.FC = () => {
 
     const fetchClients = async () => {
         try {
-            const { data, error } = await supabase
-                .from('clientes')
-                .select('id, nome')
-                .order('nome');
+            const [clientsRes, tiers] = await Promise.all([
+                supabase.from('clientes').select('id, nome').order('nome'),
+                fetchClientTierMap(),
+            ]);
 
-            if (error) throw error;
+            if (clientsRes.error) throw clientsRes.error;
             if (!mountedRef.current) return;
-            setClients(data || []);
+            setClients(clientsRes.data || []);
+            setTierMap(tiers);
         } catch (error) {
             console.error('Error fetching clients:', error);
         }
@@ -563,6 +567,25 @@ const Sales: React.FC = () => {
                                 </option>
                             ))}
                         </select>
+                        {selectedClient && (() => {
+                            const tier: ClientTier = tierMap[selectedClient] || 'NOVO';
+                            const info = TIER_INFO[tier];
+                            return (
+                                <div
+                                    className={`mt-2 p-3 rounded-lg border-l-4 ${info.bgClass} ${info.borderClass}`}
+                                    title="Informação interna — não aparece no recibo do cliente"
+                                >
+                                    <div className={`flex items-center gap-2 font-semibold ${info.textClass}`}>
+                                        <span className="text-lg">{info.emoji}</span>
+                                        <span>Classificação: {info.label}</span>
+                                    </div>
+                                    <p className={`text-xs mt-1 ${info.textClass} opacity-90`}>{info.description}</p>
+                                    <p className="text-[10px] mt-1 text-gray-500 italic">
+                                        🔒 Visível apenas para você — não sai no recibo.
+                                    </p>
+                                </div>
+                            );
+                        })()}
                     </div>
 
                     {/* Forma de Pagamento */}
