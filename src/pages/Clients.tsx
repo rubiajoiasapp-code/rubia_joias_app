@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Pencil, Trash2, UserPlus, X, Edit3, Search } from 'lucide-react';
+import { Pencil, Trash2, UserPlus, X, Edit3, Search, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { normalizeCpf, normalizePhone, isValidCpf, formatCpf, formatPhone } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import type { ClientTier } from '../lib/clientTier';
@@ -26,6 +26,7 @@ const Clients: React.FC = () => {
     const [statsMap, setStatsMap] = useState<Record<string, ClientStats>>({});
     const [loading, setLoading] = useState(!initialCached);
     const [searchTerm, setSearchTerm] = useState('');
+    const [showLegend, setShowLegend] = useState(false);
     const [formData, setFormData] = useState(emptyForm);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
@@ -333,40 +334,80 @@ const Clients: React.FC = () => {
                                 : `${sortedClients.length} clientes cadastrados`}
                         </p>
                     </div>
-                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 space-y-2 text-xs">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold text-gray-600 mr-1">Score:</span>
-                            {[90, 75, 60, 40, 20, 0].map(min => {
-                                const band = scoreBand(min);
-                                const label = `${min === 0 ? '0' : min}+`;
-                                return (
-                                    <span
-                                        key={min}
-                                        title={`${band.label}: ${min} pontos ou mais`}
-                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${band.bgClass} ${band.textClass} ${band.borderClass}`}
-                                    >
-                                        <span>{band.emoji}</span>
-                                        <span>{label} · {band.label}</span>
-                                    </span>
-                                );
-                            })}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold text-gray-600 mr-1">Pagador:</span>
-                            {(['EXCELENTE', 'BOM', 'NOVO', 'ATENCAO', 'CRITICO'] as ClientTier[]).map(t => {
-                                const info = TIER_INFO[t];
-                                return (
-                                    <span
-                                        key={t}
-                                        title={info.description}
-                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${info.bgClass} ${info.textClass} ${info.borderClass}`}
-                                    >
-                                        <span>{info.emoji}</span>
-                                        <span>{info.short}</span>
-                                    </span>
-                                );
-                            })}
-                        </div>
+                    <div className="border-b border-gray-100">
+                        <button
+                            type="button"
+                            onClick={() => setShowLegend(v => !v)}
+                            className="w-full px-4 py-2.5 flex items-center justify-between bg-gradient-to-r from-pink-50 to-purple-50 hover:from-pink-100 hover:to-purple-100 transition-colors"
+                        >
+                            <span className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                                <Info className="w-4 h-4 text-pink-600" />
+                                Como entender as classificações
+                            </span>
+                            {showLegend ? (
+                                <ChevronUp className="w-4 h-4 text-gray-500" />
+                            ) : (
+                                <ChevronDown className="w-4 h-4 text-gray-500" />
+                            )}
+                        </button>
+                        {showLegend && (
+                            <div className="p-4 bg-gray-50 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-1.5">
+                                        <span>🎯 Score (0–100 pts)</span>
+                                    </h4>
+                                    <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+                                        Combina quanto o cliente gastou, com que frequência compra, quão recente foi a última compra e a pontualidade no pagamento.
+                                    </p>
+                                    <div className="space-y-1.5">
+                                        {[
+                                            { min: 90, desc: 'Top absoluto do negócio' },
+                                            { min: 75, desc: 'Muito valioso e ativo' },
+                                            { min: 60, desc: 'Cliente consolidado' },
+                                            { min: 40, desc: 'Cliente comum' },
+                                            { min: 20, desc: 'Pouco engajamento' },
+                                            { min: 0, desc: 'Sem atividade relevante' },
+                                        ].map(({ min, desc }) => {
+                                            const band = scoreBand(min);
+                                            return (
+                                                <div key={min} className="flex items-center gap-2 text-xs">
+                                                    <span className={`inline-flex items-center justify-center w-14 px-2 py-0.5 rounded-full border font-semibold shrink-0 ${band.bgClass} ${band.textClass} ${band.borderClass}`}>
+                                                        {min}+
+                                                    </span>
+                                                    <span className={`font-semibold ${band.textClass} shrink-0`}>
+                                                        {band.emoji} {band.label}
+                                                    </span>
+                                                    <span className="text-gray-500 truncate">— {desc}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-1.5">
+                                        <span>💳 Comportamento de pagamento</span>
+                                    </h4>
+                                    <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+                                        Baseado no crediário: quem paga em dia sobe; quem atrasa cai. Redenção possível pagando 3 parcelas seguidas no prazo.
+                                    </p>
+                                    <div className="space-y-1.5">
+                                        {(['EXCELENTE', 'BOM', 'NOVO', 'ATENCAO', 'CRITICO'] as ClientTier[]).map(t => {
+                                            const info = TIER_INFO[t];
+                                            return (
+                                                <div key={t} className="flex items-start gap-2 text-xs">
+                                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border font-semibold shrink-0 ${info.bgClass} ${info.textClass} ${info.borderClass}`}>
+                                                        <span>{info.emoji}</span>
+                                                        <span>{info.short}</span>
+                                                    </span>
+                                                    <span className="text-gray-500 leading-tight">{info.description}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
