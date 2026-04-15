@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Calendar, CheckCircle, Clock, AlertCircle } from 'lucide-react';
-import { format, parseISO, isSameMonth, startOfMonth, isBefore, isToday } from 'date-fns';
+import { format, parseISO, isSameMonth, startOfMonth, isBefore, isToday, differenceInCalendarDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { todayLocalISO } from '../lib/format';
 
@@ -120,20 +120,35 @@ const ExpirationDates: React.FC = () => {
     // Helper to determine status color/icon
     const getStatusInfo = (item: Installment) => {
         const dueDate = parseISO(item.data_vencimento);
+        const today = new Date();
+        const daysDiff = differenceInCalendarDays(dueDate, today);
 
         if (item.pago) {
-            return { color: 'text-green-600', bg: 'bg-green-100', icon: CheckCircle, label: 'Pago' };
+            return { color: 'text-green-600', bg: 'bg-green-100', icon: CheckCircle, label: 'Pago', days: null as number | null };
         }
 
-        if (isBefore(dueDate, new Date()) && !isToday(dueDate)) {
-            return { color: 'text-red-600', bg: 'bg-red-100', icon: AlertCircle, label: 'Atrasado' };
+        if (isBefore(dueDate, today) && !isToday(dueDate)) {
+            const daysLate = Math.abs(daysDiff);
+            return {
+                color: 'text-red-600',
+                bg: 'bg-red-100',
+                icon: AlertCircle,
+                label: `Atrasado há ${daysLate} ${daysLate === 1 ? 'dia' : 'dias'}`,
+                days: daysLate,
+            };
         }
 
         if (isToday(dueDate)) {
-            return { color: 'text-yellow-600', bg: 'bg-yellow-100', icon: Clock, label: 'Vence Hoje' };
+            return { color: 'text-yellow-600', bg: 'bg-yellow-100', icon: Clock, label: 'Vence Hoje', days: 0 };
         }
 
-        return { color: 'text-blue-600', bg: 'bg-blue-100', icon: Calendar, label: 'A Vencer' };
+        return {
+            color: 'text-blue-600',
+            bg: 'bg-blue-100',
+            icon: Calendar,
+            label: `Vence em ${daysDiff} ${daysDiff === 1 ? 'dia' : 'dias'}`,
+            days: daysDiff,
+        };
     };
 
     return (
