@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw } from 'lucide-react';
+import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw, Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import { toBlob } from 'html-to-image';
 import SaleReceipt from '../components/SaleReceipt';
 import { todayLocalISO, splitInstallments, roundMoney, normalizePhone } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
@@ -82,6 +83,10 @@ const Credit: React.FC = () => {
     });
     // Recibo renderizado sob demanda — evita 156 recibos no DOM.
     const [capturingSale, setCapturingSale] = useState<SaleWithInstallments | null>(null);
+    // Feedback dos botões de compartilhar/baixar + trava de reentrância.
+    const [sharingSaleId, setSharingSaleId] = useState<string | null>(null);
+    const [sharingAction, setSharingAction] = useState<'share' | 'download' | null>(null);
+    const busyRef = useRef(false); // guarda síncrona — estado React atualiza tarde demais p/ duplo clique
 
     const mountedRef = useRef(true);
 
@@ -281,6 +286,8 @@ const Credit: React.FC = () => {
 
     // Captura o recibo como PNG. Renderiza o <SaleReceipt> sob demanda,
     // aguarda 2 frames para garantir que está no DOM, captura, e desmonta.
+    // Motor primário: html-to-image, que serializa SÓ o nó do recibo — o
+    // html2canvas clonava o documento inteiro (190 cards) e congelava a página.
     const captureReceipt = async (sale: SaleWithInstallments): Promise<Blob> => {
         setCapturingSale(sale);
         // Espera o React montar o componente
@@ -292,6 +299,34 @@ const Credit: React.FC = () => {
             if (!el) {
                 throw new Error('Elemento do recibo não foi montado a tempo.');
             }
+
+            // Garante que o logo terminou de carregar/decodificar (barato; cacheado).
+            await Promise.all(
+                Array.from(el.querySelectorAll('img')).map((img) =>
+                    img.complete ? Promise.resolve() : img.decode().catch(() => undefined)
+                )
+            );
+
+            try {
+                const fastBlob = await toBlob(el, {
+                    pixelRatio: 2,
+                    backgroundColor: '#ffffff',
+                    skipFonts: true, // recibo usa só fontes de sistema
+                    // Aplicado ao CLONE: neutraliza o position:absolute/left:-9999px
+                    // do nó vivo para o clone não sair do viewBox do SVG.
+                    style: {
+                        position: 'static',
+                        left: '0',
+                        top: '0',
+                        boxShadow: 'none',
+                    },
+                });
+                if (fastBlob) return fastBlob; // toBlob pode resolver null — trata como falha
+                console.warn('html-to-image retornou null; usando html2canvas.');
+            } catch (err) {
+                console.warn('html-to-image falhou; usando html2canvas:', err);
+            }
+
             const canvas = await html2canvas(el, {
                 backgroundColor: '#ffffff',
                 scale: 2,
@@ -330,24 +365,27 @@ const Credit: React.FC = () => {
     };
 
     const handleDownloadReceipt = async (sale: SaleWithInstallments) => {
+        if (busyRef.current) return; // já existe uma captura em andamento
+        busyRef.current = true;
+        setSharingSaleId(sale.id);
+        setSharingAction('download');
+        const tid = notify.loading('Gerando resumo da venda…');
         try {
             const blob = await captureReceipt(sale);
 
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
             const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
             const date = new Date(sale.data_venda).toLocaleDateString('pt-BR').replace(/\//g, '-');
-            link.download = `resumo_venda_${clientName}_${date}.png`;
-            link.href = url;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            triggerPngDownload(blob, `resumo_venda_${clientName}_${date}.png`);
 
             notify.success('Resumo baixado com sucesso!');
         } catch (error: any) {
             console.error('Erro ao gerar resumo:', error);
             notify.error('Erro ao gerar resumo', { description: error?.message || 'tente novamente' });
+        } finally {
+            notify.dismiss(tid);
+            busyRef.current = false;
+            setSharingSaleId(null);
+            setSharingAction(null);
         }
     };
 
@@ -361,11 +399,14 @@ const Credit: React.FC = () => {
     };
 
     const handleShareWhatsApp = async (sale: SaleWithInstallments) => {
-        // ======================= PRÓLOGO SÍNCRONO =======================
-        // Navegadores (principalmente no celular) bloqueiam window.open chamado
-        // depois de um await — o gesto do clique já "expirou" ("Pop-up bloqueado").
-        // Por isso toda decisão de abrir janela acontece aqui, antes de qualquer
-        // trabalho assíncrono.
+        // Trava de reentrância + feedback imediato (spinner no botão + toast).
+        if (busyRef.current) return;
+        busyRef.current = true;
+        setSharingSaleId(sale.id);
+        setSharingAction('share');
+        const tid = notify.loading('Gerando resumo da venda…');
+
+        // Detecção síncrona no momento do clique.
         let canShareFiles = false;
         try {
             canShareFiles =
@@ -376,78 +417,70 @@ const Credit: React.FC = () => {
             canShareFiles = false;
         }
 
-        const isCoarsePointer =
-            typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
-
-        // Aba placeholder só em desktop sem share nativo de arquivos (ex.: Firefox).
-        // No celular o destino é o app do WhatsApp via intent — uma aba extra viraria lixo.
-        // Atenção: 'noopener' nas features faria window.open retornar null.
-        let waWindow: Window | null = null;
-        if (!canShareFiles && !isCoarsePointer) {
-            waWindow = window.open('', '_blank');
-            if (waWindow) {
-                try {
-                    waWindow.opener = null;
-                    waWindow.document.write(
-                        '<!doctype html><html><head><title>Rubia Joias</title></head>' +
-                        '<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#6b7280">' +
-                        'Gerando resumo e abrindo o WhatsApp…</body></html>'
-                    );
-                    waWindow.document.close();
-                } catch { /* placeholder é só cosmético */ }
-            }
+        // Captura (rápida com html-to-image). Spinner some assim que termina.
+        let blob: Blob;
+        try {
+            blob = await captureReceipt(sale);
+        } catch (err) {
+            console.error('Erro ao gerar imagem do recibo:', err);
+            notify.error('Não consegui gerar o resumo', {
+                description: err instanceof Error ? err.message : 'erro desconhecido'
+            });
+            return; // finally abaixo limpa o estado
+        } finally {
+            notify.dismiss(tid);
+            busyRef.current = false;
+            setSharingSaleId(null);
+            setSharingAction(null);
         }
 
-        const closeWaWindow = () => {
-            if (waWindow && !waWindow.closed) {
-                try { waWindow.close(); } catch { /* ignora */ }
-            }
-            waWindow = null;
-        };
-
-        // Navegar uma aba já aberta (ou a própria aba) nunca é bloqueado como pop-up.
-        const navigateToWhatsApp = (waUrl: string) => {
-            if (waWindow && !waWindow.closed) {
-                waWindow.location.href = waUrl;
-                waWindow = null;
-            } else {
-                window.location.href = waUrl;
-            }
-        };
+        const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+        const fileName = `resumo_${clientName}.png`;
+        const textoPadrao = `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}. — Rubia Joias 💎`;
 
         try {
-            let blob: Blob;
-            try {
-                blob = await captureReceipt(sale);
-            } catch (err: any) {
-                closeWaWindow();
-                console.error('Erro ao gerar imagem do recibo:', err);
-                notify.error('Não consegui gerar o resumo', { description: err?.message || 'erro desconhecido' });
-                return;
-            }
-
-            const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-            const fileName = `resumo_${clientName}.png`;
-            const textoPadrao = `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}. — Rubia Joias 💎`;
-
-            // CAMADA 1: share sheet nativo (celular e Windows). Nenhuma aba envolvida.
+            // ============== RAMO A: share nativo de arquivos (celular) ==============
             if (canShareFiles) {
                 const file = new File([blob], fileName, { type: 'image/png' });
+                const shareData = {
+                    files: [file],
+                    title: 'Resumo de Venda — Rubia Joias',
+                    text: textoPadrao
+                };
+
+                // Tentativa 1: com a captura rápida, a ativação do clique original
+                // normalmente ainda está viva (janela de ~5s do navegador).
                 try {
-                    await navigator.share({
-                        files: [file],
-                        title: 'Resumo de Venda — Rubia Joias',
-                        text: textoPadrao
-                    });
+                    await navigator.share(shareData);
                     return; // sucesso
-                } catch (err: any) {
+                } catch (err) {
                     // Usuária fechou o share sheet: não é erro.
-                    if (err?.name === 'AbortError') return;
-                    console.warn('navigator.share falhou, usando fallback wa.me:', err);
+                    if (err instanceof Error && err.name === 'AbortError') return;
+                    console.warn('navigator.share falhou (ativação expirada?), renovando gesto:', err);
                 }
 
-                // Share falhou (ex.: gesto expirou porque a captura demorou):
-                // baixa o PNG e navega na própria aba — nunca é bloqueado.
+                // Renova o gesto: o clique em "Enviar" no ConfirmDialog resolve a
+                // Promise de forma síncrona dentro do onClick — a continuação roda
+                // no MESMO task do clique, com ativação transitória fresca.
+                // (Nenhum await entre o confirm e o share!)
+                const ok = await notify.confirm({
+                    title: 'Resumo pronto!',
+                    description: 'Toque em Enviar e escolha o WhatsApp.',
+                    confirmText: 'Enviar',
+                    cancelText: 'Agora não',
+                });
+                if (!ok) return;
+
+                try {
+                    await navigator.share(shareData); // gesto fresco do botão Enviar
+                    return;
+                } catch (err) {
+                    if (err instanceof Error && err.name === 'AbortError') return;
+                    console.warn('navigator.share falhou 2x, caindo para download + wa.me:', err);
+                }
+
+                // Fallback final do ramo A: download + navegação na própria aba
+                // (window.location.href nunca cai no bloqueador de pop-up).
                 triggerPngDownload(blob, fileName);
                 const phoneDigits = await fetchClientPhoneDigits(sale);
                 if (phoneDigits.length >= 10) {
@@ -465,48 +498,52 @@ const Credit: React.FC = () => {
                 return;
             }
 
-            // Busca telefone uma vez (usado pelas camadas 2 e 3)
+            // ===== RAMO B: sem share de arquivos (ex.: Firefox desktop) =====
+            // Telefone e clipboard ANTES do confirm — não pode haver await
+            // entre o clique no Confirmar e o window.open.
             const phoneDigits = await fetchClientPhoneDigits(sale);
             const hasPhone = phoneDigits.length >= 10;
 
-            // CAMADA 2: desktop via clipboard + WhatsApp Web
+            let copied = false;
             if (typeof navigator.clipboard !== 'undefined' && typeof window.ClipboardItem !== 'undefined') {
                 try {
-                    await navigator.clipboard.write([
-                        new ClipboardItem({ 'image/png': blob })
-                    ]);
-
-                    const message = encodeURIComponent(textoPadrao + '\n\n(📎 cole a imagem aqui com Ctrl+V)');
-                    navigateToWhatsApp(hasPhone
-                        ? `https://wa.me/55${phoneDigits}?text=${message}`
-                        : 'https://web.whatsapp.com/');
-
-                    notify.success('Imagem copiada para a área de transferência!', {
-                        description: `No WhatsApp Web: selecione a conversa${hasPhone ? ' (já abrimos)' : ''}, Ctrl+V para colar, Enter para enviar.`,
-                        duration: 10000,
-                    });
-                    return;
+                    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                    copied = true;
                 } catch (err) {
-                    console.warn('Clipboard falhou, caindo no fallback de download:', err);
-                    // cai para camada 3; a aba pré-aberta (se existir) é aproveitada lá
+                    console.warn('Clipboard falhou, caindo para download:', err);
                 }
             }
+            if (!copied) triggerPngDownload(blob, fileName);
 
-            // CAMADA 3: fallback final — download + abrir WhatsApp
-            triggerPngDownload(blob, fileName);
+            const ok = await notify.confirm({
+                title: 'Resumo pronto!',
+                description: copied
+                    ? 'Imagem copiada — no WhatsApp Web, cole na conversa com Ctrl+V.'
+                    : 'Resumo baixado em PNG — anexe a imagem na conversa.',
+                confirmText: 'Abrir WhatsApp',
+                cancelText: 'Agora não',
+            });
+            if (!ok) return;
 
-            if (hasPhone) {
-                navigateToWhatsApp(`https://wa.me/55${phoneDigits}?text=${encodeURIComponent(textoPadrao)}`);
-            } else if (waWindow) {
-                navigateToWhatsApp('https://web.whatsapp.com/');
+            const message = copied ? `${textoPadrao}\n\n(📎 cole a imagem aqui com Ctrl+V)` : textoPadrao;
+            const waUrl = hasPhone
+                ? `https://wa.me/55${phoneDigits}?text=${encodeURIComponent(message)}`
+                : 'https://web.whatsapp.com/';
+
+            // Gesto fresco do botão "Abrir WhatsApp" → window.open permitido.
+            // NÃO passar 'noopener' nas features: faria window.open retornar null.
+            const win = window.open(waUrl, '_blank');
+            if (!win) {
+                window.location.href = waUrl; // pop-ups bloqueados à força → mesma aba
             }
-            notify.warning('Não foi possível copiar a imagem automaticamente', {
-                description: 'O resumo foi baixado como PNG — anexe a imagem na conversa do WhatsApp.',
-                duration: 8000,
+
+            notify.success(copied ? 'Imagem copiada!' : 'Resumo baixado!', {
+                description: hasPhone
+                    ? (copied ? 'A conversa já abre — Ctrl+V para colar e Enter para enviar.' : 'A conversa já abre — anexe o PNG baixado.')
+                    : (copied ? 'Selecione a conversa, Ctrl+V para colar e Enter para enviar.' : 'Selecione a conversa e anexe o PNG baixado.'),
+                duration: 10000,
             });
         } catch (err) {
-            // Cinto de segurança: qualquer erro inesperado fecha a aba placeholder.
-            closeWaWindow();
             console.error('Erro ao compartilhar no WhatsApp:', err);
             notify.error('Erro ao compartilhar', { description: err instanceof Error ? err.message : 'tente novamente' });
         }
@@ -780,20 +817,30 @@ const Credit: React.FC = () => {
                                                 e.stopPropagation();
                                                 handleShareWhatsApp(sale);
                                             }}
-                                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                            disabled={sharingSaleId !== null}
+                                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Compartilhar no WhatsApp"
                                         >
-                                            <MessageCircle className="w-5 h-5" />
+                                            {sharingSaleId === sale.id && sharingAction === 'share' ? (
+                                                <Loader2 className="w-5 h-5 animate-spin" />
+                                            ) : (
+                                                <MessageCircle className="w-5 h-5" />
+                                            )}
                                         </button>
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleDownloadReceipt(sale);
                                             }}
-                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            disabled={sharingSaleId !== null}
+                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Baixar resumo em PNG"
                                         >
-                                            <Download className="w-5 h-5" />
+                                            {sharingSaleId === sale.id && sharingAction === 'download' ? (
+                                                <Loader2 className="w-5 h-5 animate-spin" />
+                                            ) : (
+                                                <Download className="w-5 h-5" />
+                                            )}
                                         </button>
                                         <button
                                             onClick={(e) => {

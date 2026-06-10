@@ -60,5 +60,11 @@ export const notify = {
     message(message: string, options?: ToastOptions) {
         toast(message, options);
     },
+    loading(message: string, options?: ToastOptions): string | number {
+        return toast.loading(message, options);
+    },
+    dismiss(id?: string | number) {
+        toast.dismiss(id);
+    },
     confirm: confirmDialog,
 };
