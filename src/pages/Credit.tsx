@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw, Loader2, Search } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { toBlob } from 'html-to-image';
 import SaleReceipt from '../components/SaleReceipt';
@@ -49,6 +49,9 @@ interface SaleWithInstallments extends Sale {
     totalPendente: number;
 }
 
+// Remove acentos para busca tolerante ("debora" acha "Débora").
+const stripAccents = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+
 // Baixa um Blob como PNG via âncora — ao contrário de window.open, não exige
 // gesto recente do usuário, então nunca cai no bloqueador de pop-up.
 const triggerPngDownload = (blob: Blob, fileName: string) => {
@@ -71,6 +74,7 @@ const Credit: React.FC = () => {
     const [expandedSale, setExpandedSale] = useState<string | null>(null);
     const [editingInstallment, setEditingInstallment] = useState<Installment | null>(null);
     const [filter, setFilter] = useState<'TODAS' | 'PARCELADAS' | 'AVISTA'>('TODAS');
+    const [searchTerm, setSearchTerm] = useState('');
     const [renegotiating, setRenegotiating] = useState<SaleWithInstallments | null>(null);
     const [renegotiationForm, setRenegotiationForm] = useState({
         downPayment: 0,
@@ -677,11 +681,12 @@ const Credit: React.FC = () => {
         );
     }
 
-    // Filtrar vendas baseado no filtro selecionado
+    // Filtrar vendas: aba selecionada + busca por nome do cliente (sem acentos)
+    const needle = stripAccents(searchTerm.trim().toLowerCase());
     const filteredSales = sales.filter(sale => {
-        if (filter === 'TODAS') return true;
-        if (filter === 'PARCELADAS') return sale.forma_pagamento === 'FIADO';
-        if (filter === 'AVISTA') return sale.forma_pagamento !== 'FIADO';
+        if (filter === 'PARCELADAS' && sale.forma_pagamento !== 'FIADO') return false;
+        if (filter === 'AVISTA' && sale.forma_pagamento === 'FIADO') return false;
+        if (needle !== '' && !stripAccents(sale.cliente.nome.toLowerCase()).includes(needle)) return false;
         return true;
     });
 
@@ -736,12 +741,36 @@ const Credit: React.FC = () => {
                         À Vista ({sales.filter(s => s.forma_pagamento !== 'FIADO').length})
                     </button>
                 </div>
+                <div className="relative mt-3">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                        type="text"
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        placeholder="Buscar pelo nome do cliente..."
+                        className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    />
+                    {searchTerm && (
+                        <button
+                            type="button"
+                            onClick={() => setSearchTerm('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 p-1"
+                            title="Limpar busca"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
             </div>
 
             {filteredSales.length === 0 ? (
                 <div className="bg-white p-12 rounded-lg shadow-md text-center">
                     <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600 text-lg">Nenhuma venda encontrada neste filtro</p>
+                    <p className="text-gray-600 text-lg">
+                        {needle !== ''
+                            ? `Nenhuma venda encontrada para "${searchTerm.trim()}"`
+                            : 'Nenhuma venda encontrada neste filtro'}
+                    </p>
                 </div>
             ) : (
                 <div className="space-y-4">
