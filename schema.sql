@@ -74,7 +74,10 @@ CREATE TABLE IF NOT EXISTS parcelas_pagar (
 );
 
 -- Feature: Lista de Conferência de Estoque
-CREATE OR REPLACE VIEW lista_conferencia_estoque AS
+-- security_invoker: sem isso a view roda com o privilégio do dono (postgres), que ignora
+-- RLS — viraria um desvio para ler produtos inteiros sem passar pelas policies.
+CREATE OR REPLACE VIEW lista_conferencia_estoque
+WITH (security_invoker = true) AS
 SELECT 
     descricao AS produto,
     quantidade_estoque AS quantidade_atual
@@ -108,3 +111,45 @@ BEGIN
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ---------------------------------------------------------------------------
+-- Row Level Security
+-- Aplicado por migration_enable_rls.sql. Mantido aqui porque schema.sql é o canônico.
+--
+-- Modelo: `authenticated` tem CRUD completo (é uma loja só; todo usuário logado é a
+-- dona, e nenhuma tabela tem coluna de dono). `anon` só enxerga o catálogo público.
+-- `service_role` ignora RLS, então a Edge Function send-whatsapp-reminder não muda.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+    t text;
+    tabelas text[] := ARRAY[
+        'clientes', 'fornecedores', 'produtos', 'vendas', 'itens_venda',
+        'contas_pagar', 'parcelas_pagar', 'parcelas_venda', 'configuracoes_notificacoes'
+    ];
+BEGIN
+    FOREACH t IN ARRAY tabelas LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', 'authenticated_all_' || t, t);
+        EXECUTE format(
+            'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)',
+            'authenticated_all_' || t, t
+        );
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+        EXECUTE format('REVOKE ALL ON public.%I FROM anon', t);
+    END LOOP;
+END $$;
+
+-- Catálogo público (/catalogo, sem login). O GRANT por coluna é o que protege
+-- valor_custo e conta_pagar_id: a policy filtra linhas, não colunas.
+-- show_in_catalog entra na lista porque o Postgres exige SELECT nas colunas do WHERE.
+GRANT SELECT (
+    id, codigo, descricao, categoria, valor_venda, quantidade_estoque, image_url, show_in_catalog
+) ON public.produtos TO anon;
+
+DROP POLICY IF EXISTS anon_catalogo_produtos ON public.produtos;
+CREATE POLICY anon_catalogo_produtos
+    ON public.produtos FOR SELECT TO anon
+    USING (show_in_catalog = true);
+
+REVOKE ALL ON public.lista_conferencia_estoque FROM anon;
+REVOKE EXECUTE ON FUNCTION public.gerar_parcelas(UUID, DECIMAL, INTEGER, DATE) FROM anon;
