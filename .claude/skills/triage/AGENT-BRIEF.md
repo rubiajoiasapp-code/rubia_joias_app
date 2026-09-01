@@ -7,7 +7,14 @@ Um **agent brief** é a especificação bem-formada que sai da triagem quando um
 ### Durabilidade acima de precisão
 O brief pode ficar parado por dias e o código muda no meio. Escreva de um jeito que continue útil mesmo com arquivos renomeados ou refatorados.
 - **Faça**: descrever interfaces, tipos e contratos de comportamento; nomear tipos, assinaturas de função ou formatos de config que o agente deve procurar/alterar.
-- **Não faça**: referenciar caminhos de arquivo ou números de linha; assumir que a estrutura de implementação atual vai continuar igual.
+- **Não faça**: assumir que a estrutura de implementação atual vai continuar igual.
+
+**Sobre caminhos de arquivo neste ambiente.** Aqui existe repositório, e um caminho é link clicável — economiza busca de quem for implementar. Então cite arquivos, mas com disciplina:
+
+- O **contrato continua sendo comportamental**. O caminho é um ponteiro ("hoje isso vive em [Inventory.tsx](src/pages/Inventory.tsx)"), nunca a definição do trabalho. Se o arquivo for renomeado, o brief tem que continuar executável.
+- **Verifique o caminho no momento de escrever.** Nada pior que um ponteiro que já nasce errado.
+- **Nunca números de linha.** Envelhecem no primeiro commit.
+- Neste projeto as páginas são arquivos únicos e grandes (600–900+ linhas), então "onde mexer" quase sempre é *um* arquivo — dizer qual poupa tempo real.
 
 ### Comportamental, não procedural
 Descreva **o que** o sistema deve fazer, não **como** implementar. O agente explora o código do zero e decide a implementação.
@@ -18,6 +25,17 @@ Descreva **o que** o sistema deve fazer, não **como** implementar. O agente exp
 O agente precisa saber quando terminou. Todo brief tem critérios concretos e testáveis, cada um verificável de forma independente.
 - **Bom:** "Rodar `x` com a flag `y` retorna JSON válido para sucesso e erro."
 - **Ruim:** "A triagem deve funcionar corretamente."
+
+**Escreva contra as costuras que existem neste projeto.** Não há test runner aqui, então critério que diga "adicionar teste unitário" é inexequível. O que dá para verificar:
+
+- `npm run build` (`tsc -b` + vite) passa — pega erro de tipo e compilação
+- `npm run lint` passa
+- Passos manuais no navegador, escritos com precisão: qual rota abrir, o que clicar, o que tem que aparecer
+- Consulta ao banco pelo MCP do Supabase, para critério sobre dados, schema, RLS ou storage
+- Scripts em `scripts/` em dry-run, para critério sobre estado do storage
+
+**Bom (UI):** "Em /estoque, ao trocar a foto de uma peça, o console mostra a linha de compressão e a imagem anterior deixa de existir no bucket."
+**Bom (dados):** "Consultar `storage.objects` não retorna nenhum caminho ausente em `produtos.image_url`."
 
 ### Fronteiras de escopo explícitas
 Diga o que está **fora do escopo** — evita que o agente faça a mais ou assuma features adjacentes.

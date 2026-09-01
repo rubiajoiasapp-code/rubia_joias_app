@@ -12,6 +12,18 @@ Esta skill é uma **adaptação** de uma skill do conjunto **"Skills for Real En
 
 O texto e a estrutura originais são de Matt Pocock. As adaptações acima são para uso pessoal, permitidas pela licença MIT abaixo.
 
+## Segunda adaptacao — do claude.ai para o Claude Code (este repositorio)
+
+A versao anterior tinha sido reduzida para rodar no claude.ai, sem repositorio nem shell.
+Aqui esses recursos existem, entao as limitacoes foram desfeitas:
+
+- Removida a premissa de "sem repositorio": a skill agora le o codigo com Grep/Glob/Read, roda o shell e consulta o banco pelo MCP do Supabase (read-only) antes de perguntar qualquer coisa ao usuario.
+- Saida deixou de ser "apresente para download" (e .zip): os arquivos sao escritos no repositorio e informados como link clicavel.
+- Acrescentado o contexto deste projeto: dominio e UI em portugues, paginas como arquivos unicos grandes, convencao migration_*.sql + schema.sql, e push na main = deploy em producao.
+- Acrescentado o fato de NAO existir test runner aqui: as costuras de verificacao passam a ser npm run build (tsc -b), npm run lint, passos manuais no navegador, consulta ao banco pelo MCP e os scripts em scripts/ em dry-run.
+- Acrescentado o campo "Como verificar" no template do ticket, ligado as costuras que existem aqui.
+- Acrescentada a regra de que migration e quase sempre expand-contract, porque o schema e aplicado a mao no painel e o deploy e automatico no push da main.
+
 ---
 
 MIT License

@@ -16,6 +16,19 @@ No original, `grill-with-docs` apenas **compõe** duas outras skills — `grilli
 
 O texto e a estrutura originais são de Matt Pocock. As adaptações são para uso pessoal, permitidas pela MIT abaixo.
 
+## Segunda adaptacao — do claude.ai para o Claude Code (este repositorio)
+
+A versao anterior tinha sido reduzida para rodar no claude.ai, sem repositorio nem shell.
+Aqui esses recursos existem, entao as limitacoes foram desfeitas:
+
+- Removida a premissa de "sem repositorio": a skill agora le o codigo com Grep/Glob/Read, roda o shell e consulta o banco pelo MCP do Supabase (read-only) antes de perguntar qualquer coisa ao usuario.
+- Saida deixou de ser "apresente para download" (e .zip): os arquivos sao escritos no repositorio e informados como link clicavel.
+- Acrescentado o contexto deste projeto: dominio e UI em portugues, paginas como arquivos unicos grandes, convencao migration_*.sql + schema.sql, e push na main = deploy em producao.
+- Acrescentado o fato de NAO existir test runner aqui: as costuras de verificacao passam a ser npm run build (tsc -b), npm run lint, passos manuais no navegador, consulta ao banco pelo MCP e os scripts em scripts/ em dry-run.
+- "Achar fatos e seu trabalho" deixou de ser aspiracao: com repositorio, shell e MCP, perguntar ao usuario algo que o codigo responde passa a ser erro explicito.
+- Acrescentado "desafie contra o codigo": o dominio ja esta encarnado em schema.sql e nos nomes das tabelas, e divergencia entre o termo do usuario e o do codigo e um achado.
+- CONTEXT.md e docs/adr/ passam a ser versionados junto com o codigo que descrevem.
+
 ---
 
 MIT License

@@ -14,6 +14,19 @@ Esta skill é uma **adaptação** da skill `triage` do conjunto **"Skills for Re
 
 O texto e a estrutura originais são de Matt Pocock. As adaptações são para uso pessoal, permitidas pela MIT abaixo.
 
+## Segunda adaptacao — do claude.ai para o Claude Code (este repositorio)
+
+A versao anterior tinha sido reduzida para rodar no claude.ai, sem repositorio nem shell.
+Aqui esses recursos existem, entao as limitacoes foram desfeitas:
+
+- Removida a premissa de "sem repositorio": a skill agora le o codigo com Grep/Glob/Read, roda o shell e consulta o banco pelo MCP do Supabase (read-only) antes de perguntar qualquer coisa ao usuario.
+- Saida deixou de ser "apresente para download" (e .zip): os arquivos sao escritos no repositorio e informados como link clicavel.
+- Acrescentado o contexto deste projeto: dominio e UI em portugues, paginas como arquivos unicos grandes, convencao migration_*.sql + schema.sql, e push na main = deploy em producao.
+- Acrescentado o fato de NAO existir test runner aqui: as costuras de verificacao passam a ser npm run build (tsc -b), npm run lint, passos manuais no navegador, consulta ao banco pelo MCP e os scripts em scripts/ em dry-run.
+- Restaurada a verificacao real da alegacao: reproduzir bug lendo o caminho de codigo, rodando o build e consultando os dados — o oposto da versao claude.ai, que fazia checagem "no nivel do raciocinio".
+- Restaurada a checagem de redundancia no codigo para enhancements.
+- AGENT-BRIEF.md: a proibicao de citar caminhos de arquivo virou disciplina — caminho e ponteiro verificado no momento da escrita, nunca o contrato, e nunca numero de linha.
+
 ---
 
 MIT License
