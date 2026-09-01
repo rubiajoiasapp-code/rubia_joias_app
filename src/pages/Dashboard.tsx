@@ -410,7 +410,9 @@ const Dashboard: React.FC = () => {
                     .limit(10000),
                 supabase
                     .from('parcelas_venda')
-                    .select('valor_parcela, data_vencimento, pago')
+                    // saldo_devedor precisa vir no select: com pagamento parcial, somar
+                    // valor_parcela cobraria de novo o que a cliente já pagou.
+                    .select('valor_parcela, saldo_devedor, data_vencimento, pago')
                     .eq('pago', false),
                 supabase
                     .from('parcelas_pagar')
@@ -553,7 +555,8 @@ const Dashboard: React.FC = () => {
             let semanaVendaQtd = 0;
             for (const p of parcelasVenda) {
                 const vencimento = p.data_vencimento;
-                const valor = Number(p.valor_parcela) || 0;
+                // O que ainda falta receber, não o valor cheio da parcela.
+                const valor = Number(p.saldo_devedor ?? p.valor_parcela) || 0;
                 if (vencimento < hoje) {
                     atrasadasTotal += valor;
                     atrasadasQtd += 1;

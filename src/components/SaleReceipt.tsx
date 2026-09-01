@@ -1,4 +1,5 @@
 import React from 'react';
+import { notasParaCliente } from '../lib/format';
 
 interface Installment {
     id: string;
@@ -8,6 +9,8 @@ interface Installment {
     data_vencimento: string;
     data_pagamento: string | null;
     pago: boolean;
+    valor_pago: number;
+    saldo_devedor: number;
     observacoes: string | null;
 }
 
@@ -385,10 +388,32 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                                                 )}
                                             </td>
                                             <td style={{ padding: '10px 12px', fontSize: '11px', color: COLORS.textMuted, textAlign: 'center', borderBottom: rowBorder }}>
-                                                {parcela.data_pagamento ? formatDate(parcela.data_pagamento) : '—'}
+                                                {/* Parcela parcial mostra QUANTO e QUANDO — só a data faria a
+                                                    cliente achar que a parcela inteira foi paga naquele dia. */}
+                                                {!parcela.pago && Number(parcela.valor_pago) > 0
+                                                    ? `R$ ${Number(parcela.valor_pago).toFixed(2)}${parcela.data_pagamento ? ` em ${formatDate(parcela.data_pagamento)}` : ''}`
+                                                    : parcela.data_pagamento
+                                                        ? formatDate(parcela.data_pagamento)
+                                                        : '—'}
                                             </td>
                                             <td style={{ padding: '10px 12px', textAlign: 'center', borderBottom: rowBorder }}>
-                                                {parcela.pago ? (
+                                                {!parcela.pago && Number(parcela.valor_pago) > 0 ? (
+                                                    // Pagamento parcial: a cliente precisa ver quanto ainda falta,
+                                                    // não só que a parcela está "pendente".
+                                                    <span style={{
+                                                        display: 'inline-block',
+                                                        backgroundColor: COLORS.warningBg,
+                                                        color: COLORS.warningText,
+                                                        padding: '3px 10px',
+                                                        borderRadius: '10px',
+                                                        fontSize: '10px',
+                                                        fontWeight: 700,
+                                                        letterSpacing: '0.5px',
+                                                        whiteSpace: 'nowrap'
+                                                    }}>
+                                                        FALTA R$ {Number(parcela.saldo_devedor).toFixed(2)}
+                                                    </span>
+                                                ) : parcela.pago ? (
                                                     <span style={{
                                                         display: 'inline-block',
                                                         backgroundColor: COLORS.successBg,
@@ -422,8 +447,11 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                             </tbody>
                         </table>
 
-                        {/* Observações */}
-                        {sale.parcelas[0]?.observacoes && (
+                        {/* Observações da VENDA (renegociação, entrada, notas da dona).
+                            O log de abatimentos/estornos é interno e fica de fora: este
+                            documento vai para a cliente pelo WhatsApp. `whiteSpace` para
+                            as quebras de linha não colarem tudo num parágrafo só. */}
+                        {notasParaCliente(sale.parcelas[0]?.observacoes ?? null) && (
                             <div style={{
                                 marginTop: '10px',
                                 padding: '10px 14px',
@@ -431,9 +459,10 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                                 borderLeft: `3px solid ${COLORS.warningBorder}`,
                                 fontSize: '11px',
                                 color: COLORS.warningText,
-                                borderRadius: '4px'
+                                borderRadius: '4px',
+                                whiteSpace: 'pre-line'
                             }}>
-                                <strong>Obs:</strong> {sale.parcelas[0].observacoes}
+                                <strong>Obs:</strong> {notasParaCliente(sale.parcelas[0]?.observacoes ?? null)}
                             </div>
                         )}
                     </div>

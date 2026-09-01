@@ -11,7 +11,10 @@ interface Installment {
     venda_id: string;
     numero_parcela: number;
     valor_parcela: number;
+    valor_pago: number;
+    saldo_devedor: number;
     data_vencimento: string;
+    data_pagamento: string | null;
     pago: boolean;
     observacoes: string | null;
     venda: {
@@ -44,7 +47,10 @@ const ExpirationDates: React.FC = () => {
                     venda_id,
                     numero_parcela,
                     valor_parcela,
+                    valor_pago,
+                    saldo_devedor,
                     data_vencimento,
+                    data_pagamento,
                     pago,
                     observacoes,
                     venda:vendas (
@@ -98,9 +104,12 @@ const ExpirationDates: React.FC = () => {
 
             if (error) throw error;
 
-            // Update local state
+            // Update local state. O trigger no banco também preenche o valor_pago; se
+            // aqui só marcássemos `pago`, os totais do mês ficariam errados até o reload.
             setInstallments(prev => prev.map(item =>
-                item.id === id ? { ...item, pago: true } : item
+                item.id === id
+                    ? { ...item, pago: true, valor_pago: item.valor_parcela, saldo_devedor: 0, data_pagamento: todayLocalISO() }
+                    : item
             ));
         } catch (error) {
             console.error('Error updating installment:', error);
@@ -113,10 +122,14 @@ const ExpirationDates: React.FC = () => {
         isSameMonth(parseISO(item.data_vencimento), selectedMonth)
     );
 
-    // Calculate totals for the month
-    const totalDue = currentMonthInstallments.reduce((acc, curr) => acc + curr.valor_parcela, 0);
-    const totalPaid = currentMonthInstallments.filter(i => i.pago).reduce((acc, curr) => acc + curr.valor_parcela, 0);
-    const totalPending = totalDue - totalPaid;
+    // Calculate totals for the month.
+    // Somar por valor_pago/saldo_devedor em vez de filtrar por `pago`: com pagamento
+    // parcial, o antigo `filter(pago)` deixava de fora o dinheiro já recebido numa
+    // parcela ainda em aberto — subestimava o recebido e inflava o pendente.
+    // A subtração também deixa de ser necessária, cada total tem sua própria fonte.
+    const totalDue = currentMonthInstallments.reduce((acc, curr) => acc + Number(curr.valor_parcela), 0);
+    const totalPaid = currentMonthInstallments.reduce((acc, curr) => acc + Number(curr.valor_pago ?? 0), 0);
+    const totalPending = currentMonthInstallments.reduce((acc, curr) => acc + Number(curr.saldo_devedor ?? 0), 0);
 
     // Helper to determine status color/icon
     const getStatusInfo = (item: Installment) => {
@@ -255,7 +268,9 @@ const ExpirationDates: React.FC = () => {
                                                         Parcela {item.numero_parcela} • Vencimento: {format(parseISO(item.data_vencimento), 'dd/MM/yyyy')}
                                                     </p>
                                                     {item.observacoes && (
-                                                        <p className="text-xs text-gray-400 mt-1 italic">
+                                                        // whitespace-pre-line: o histórico da parcela tem uma
+                                                        // linha por evento, e sem isso vira um parágrafo colado.
+                                                        <p className="text-xs text-gray-400 mt-1 italic whitespace-pre-line">
                                                             Obs: {item.observacoes}
                                                         </p>
                                                     )}
@@ -264,9 +279,17 @@ const ExpirationDates: React.FC = () => {
 
                                             <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
                                                 <div className="text-right">
+                                                    {/* Numa parcela parcialmente paga o número grande é o que
+                                                        FALTA — é o que a dona vai cobrar. O valor cheio fica
+                                                        embaixo, para ela não perder a referência da parcela. */}
                                                     <div className="font-bold text-gray-800 text-lg">
-                                                        R$ {item.valor_parcela.toFixed(2)}
+                                                        R$ {(item.pago ? Number(item.valor_parcela) : Number(item.saldo_devedor ?? item.valor_parcela)).toFixed(2)}
                                                     </div>
+                                                    {!item.pago && Number(item.valor_pago) > 0 && (
+                                                        <div className="text-xs text-amber-700 font-medium">
+                                                            de R$ {Number(item.valor_parcela).toFixed(2)} · pago R$ {Number(item.valor_pago).toFixed(2)}
+                                                        </div>
+                                                    )}
                                                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}>
                                                         {status.label}
                                                     </span>

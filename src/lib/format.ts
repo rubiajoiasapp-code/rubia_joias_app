@@ -2,6 +2,47 @@ export function roundMoney(n: number): number {
     return Math.round(n * 100) / 100;
 }
 
+const hojeBR = () => new Date().toLocaleDateString('pt-BR');
+
+/**
+ * Eventos de pagamento gravados em `parcelas_venda.observacoes` pelo Crediário.
+ *
+ * São log INTERNO: registram quando entrou (ou saiu) dinheiro de uma parcela. Não podem
+ * vazar para o recibo, que é o documento enviado à cliente pelo WhatsApp — ela não
+ * precisa ver o histórico de estornos e correções da loja.
+ *
+ * Geradores e filtro moram juntos de propósito: separados, um muda sem o outro e o log
+ * volta a vazar em silêncio.
+ */
+const EVENTO_PAGAMENTO = /^(Abatimento de R\$|Quitação manual de R\$|Estorno de R\$)/;
+
+export const registroAbatimento = (valor: number) =>
+    `Abatimento de R$ ${valor.toFixed(2)} em ${hojeBR()}`;
+
+export const registroQuitacao = (valor: number) =>
+    `Quitação manual de R$ ${valor.toFixed(2)} em ${hojeBR()}`;
+
+export const registroEstorno = (valor: number) =>
+    `Estorno de R$ ${valor.toFixed(2)} — parcela reaberta em ${hojeBR()}`;
+
+/** Acrescenta uma linha ao histórico da parcela, preservando o que já estava lá. */
+export function anexarObservacao(atual: string | null, linha: string): string {
+    return atual ? `${atual}\n${linha}` : linha;
+}
+
+/**
+ * O que da `observacoes` pode ser mostrado à cliente: notas de renegociação, entrada e
+ * anotações manuais da dona. Tudo que for evento de pagamento fica de fora.
+ */
+export function notasParaCliente(observacoes: string | null): string | null {
+    if (!observacoes) return null;
+    const linhas = observacoes
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l && !EVENTO_PAGAMENTO.test(l));
+    return linhas.length ? linhas.join('\n') : null;
+}
+
 export function formatCurrency(n: number): string {
     if (!Number.isFinite(n)) return 'R$ 0,00';
     return new Intl.NumberFormat('pt-BR', {

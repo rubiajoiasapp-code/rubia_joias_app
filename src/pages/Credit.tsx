@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw, Loader2, Search } from 'lucide-react';
+import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw, Loader2, Search, Banknote } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { toBlob } from 'html-to-image';
 import SaleReceipt from '../components/SaleReceipt';
-import { todayLocalISO, splitInstallments, roundMoney, normalizePhone } from '../lib/format';
+import {
+    todayLocalISO, splitInstallments, roundMoney, normalizePhone, formatCurrency,
+    anexarObservacao, registroAbatimento, registroQuitacao, registroEstorno,
+} from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import { notify } from '../lib/notify';
 
@@ -27,6 +30,12 @@ interface Installment {
     data_vencimento: string;
     data_pagamento: string | null;
     pago: boolean;
+    // Quanto já entrou desta parcela. Permite pagamento parcial: a cliente paga
+    // R$ 45,68 de uma de R$ 100,00 e o restante fica pendurado.
+    valor_pago: number;
+    // Coluna gerada no banco (valor_parcela - valor_pago). Nunca calcule o saldo aqui:
+    // o banco é a fonte da verdade, e é isso que impede as telas de divergirem.
+    saldo_devedor: number;
     observacoes: string | null;
 }
 
@@ -48,6 +57,36 @@ interface SaleWithInstallments extends Sale {
     totalPago: number;
     totalPendente: number;
 }
+
+interface AplicacaoPagamento {
+    parcela: Installment;
+    aplicar: number;
+    novoSaldo: number;
+}
+
+// Distribui um pagamento pela fila de parcelas em aberto, da mais antiga para a mais
+// nova. A cliente chega com R$ 154,00 para duas parcelas de R$ 100,00: a dona lança o
+// valor inteiro, a 1ª quita e os R$ 54,00 descem para a 2ª, que fica com R$ 46,00.
+//
+// A cascata é sempre PARA FRENTE. Se ela abriu a 2ª parcela, a sobra vai para a 3ª e
+// nunca volta para a 1ª: o que ficou para trás é decisão dela, não da conta.
+const distribuirPagamento = (valor: number, fila: Installment[]) => {
+    let restante = roundMoney(valor);
+    const plano: AplicacaoPagamento[] = [];
+
+    for (const parcela of fila) {
+        if (restante <= 0) break;
+        const saldo = roundMoney(Number(parcela.saldo_devedor));
+        if (saldo <= 0) continue;
+        const aplicar = roundMoney(Math.min(restante, saldo));
+        plano.push({ parcela, aplicar, novoSaldo: roundMoney(saldo - aplicar) });
+        restante = roundMoney(restante - aplicar);
+    }
+
+    // `sobra > 0` significa dinheiro que não coube em parcela nenhuma — a dona digitou
+    // mais do que a cliente deve daqui para frente.
+    return { plano, sobra: restante };
+};
 
 // Remove acentos para busca tolerante ("debora" acha "Débora").
 const stripAccents = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -85,6 +124,10 @@ const Credit: React.FC = () => {
         data_vencimento: '',
         pago: false
     });
+    // Abatimento parcial: a cliente paga parte da parcela no balcão.
+    const [abatendo, setAbatendo] = useState<Installment | null>(null);
+    const [abatimentoValor, setAbatimentoValor] = useState('');
+    const [salvandoAbatimento, setSalvandoAbatimento] = useState(false);
     // Recibo renderizado sob demanda — evita 156 recibos no DOM.
     const [capturingSale, setCapturingSale] = useState<SaleWithInstallments | null>(null);
     // Feedback dos botões de compartilhar/baixar + trava de reentrância.
@@ -172,8 +215,11 @@ const Credit: React.FC = () => {
                 const parcelas = (parcelasByVenda.get(sale.id) || []).sort(
                     (a, b) => a.numero_parcela - b.numero_parcela
                 );
-                const totalPago = parcelas.filter(p => p.pago).reduce((sum, p) => sum + Number(p.valor_parcela), 0);
-                const totalPendente = parcelas.filter(p => !p.pago).reduce((sum, p) => sum + Number(p.valor_parcela), 0);
+                // Soma por valor_pago/saldo_devedor, não por valor_parcela filtrado por
+                // `pago`: uma parcela parcialmente paga precisa entrar nos DOIS totais,
+                // cada um pela sua fatia.
+                const totalPago = parcelas.reduce((sum, p) => sum + Number(p.valor_pago ?? 0), 0);
+                const totalPendente = parcelas.reduce((sum, p) => sum + Number(p.saldo_devedor ?? 0), 0);
                 return {
                     ...sale,
                     parcelas,
@@ -243,11 +289,25 @@ const Credit: React.FC = () => {
 
     const handleTogglePaid = async (installment: Installment) => {
         try {
+            const vaiPagar = !installment.pago;
+            const jaPago = roundMoney(Number(installment.valor_pago ?? 0));
+            const saldo = roundMoney(Number(installment.saldo_devedor ?? installment.valor_parcela));
+
+            // Os dois sentidos do botão mexem em dinheiro, então os dois viram linha no
+            // histórico: quitar cobre o saldo que faltava; reabrir devolve tudo à dívida.
+            let registro: string | null = null;
+            if (vaiPagar && saldo > 0) {
+                registro = registroQuitacao(saldo);
+            } else if (!vaiPagar && jaPago > 0) {
+                registro = registroEstorno(jaPago);
+            }
+
             const { error } = await supabase
                 .from('parcelas_venda')
                 .update({
-                    pago: !installment.pago,
-                    data_pagamento: !installment.pago ? todayLocalISO() : null
+                    pago: vaiPagar,
+                    data_pagamento: vaiPagar ? todayLocalISO() : null,
+                    ...(registro ? { observacoes: anexarObservacao(installment.observacoes, registro) } : {}),
                 })
                 .eq('id', installment.id);
 
@@ -258,6 +318,109 @@ const Credit: React.FC = () => {
         } catch (error: any) {
             console.error('Erro ao atualizar pagamento:', error);
             notify.error('Erro ao atualizar pagamento', { description: error.message });
+        }
+    };
+
+    const closeAbatimento = () => {
+        setAbatendo(null);
+        setAbatimentoValor('');
+    };
+
+    // `observacoes` é o único histórico que a parcela tem — decidimos guardar só o
+    // acumulado em valor_pago, sem tabela de pagamentos. Por isso TODO evento de
+    // dinheiro precisa deixar linha aqui, inclusive os que reduzem o pago: um log que
+    // só cresce de um lado passa a contradizer o número e engana quem lê.
+    // Os geradores vivem em lib/format junto do filtro que mantém esse log FORA do
+    // recibo da cliente.
+
+    // As parcelas que podem receber este pagamento: a que foi aberta e as seguintes
+    // ainda em aberto, na ordem de vencimento.
+    const filaDoAbatimento = (alvo: Installment): Installment[] => {
+        const venda = sales.find(s => s.id === alvo.venda_id);
+        if (!venda) return [alvo];
+
+        const abertas = venda.parcelas
+            .filter(p => !p.pago)
+            .sort((a, b) =>
+                a.data_vencimento.localeCompare(b.data_vencimento) ||
+                a.numero_parcela - b.numero_parcela);
+
+        const i = abertas.findIndex(p => p.id === alvo.id);
+        return i >= 0 ? abertas.slice(i) : [alvo];
+    };
+
+    // Registra o pagamento, cascateando pelas parcelas seguintes quando sobra troco.
+    // Quem decide se cada parcela virou paga é o trigger no banco, quando o valor_pago
+    // alcança o valor_parcela — por isso aqui não se escreve `pago` nem `data_pagamento`.
+    const handleAbater = async () => {
+        if (!abatendo) return;
+
+        const valor = roundMoney(parseFloat(abatimentoValor.replace(',', '.')));
+        if (!Number.isFinite(valor) || valor <= 0) {
+            notify.warning('Informe um valor maior que zero.');
+            return;
+        }
+
+        const fila = filaDoAbatimento(abatendo);
+        const { plano, sobra } = distribuirPagamento(valor, fila);
+        const totalEmAberto = roundMoney(fila.reduce((s, p) => s + Number(p.saldo_devedor), 0));
+
+        if (sobra > 0) {
+            notify.warning('Valor maior do que a cliente deve.', {
+                description: `Desta parcela em diante o total em aberto é R$ ${totalEmAberto.toFixed(2)}.`,
+            });
+            return;
+        }
+
+        setSalvandoAbatimento(true);
+        let aplicadas = 0;
+        try {
+            // Uma atualização por parcela. Cada uma é atômica no banco; se a segunda
+            // falhar, a primeira continua válida — por isso o erro informa quantas
+            // entraram, em vez de deixar a dona no escuro sobre o que foi gravado.
+            for (const item of plano) {
+                const novoValorPago = roundMoney(Number(item.parcela.valor_pago) + item.aplicar);
+                const { error } = await supabase
+                    .from('parcelas_venda')
+                    .update({
+                        valor_pago: novoValorPago,
+                        observacoes: anexarObservacao(item.parcela.observacoes, registroAbatimento(item.aplicar)),
+                    })
+                    .eq('id', item.parcela.id);
+
+                if (error) throw error;
+                aplicadas++;
+            }
+
+            const quitadas = plano.filter(p => p.novoSaldo === 0).length;
+            const emAberto = plano.find(p => p.novoSaldo > 0);
+            notify.success(
+                plano.length > 1
+                    ? `Pagamento distribuído em ${plano.length} parcelas`
+                    : quitadas === 1 ? 'Parcela quitada!' : 'Abatimento registrado',
+                {
+                    description: emAberto
+                        ? `${quitadas > 0 ? `${quitadas} quitada(s). ` : ''}Saldo restante na ${emAberto.parcela.numero_parcela}ª: R$ ${emAberto.novoSaldo.toFixed(2)}`
+                        : undefined,
+                }
+            );
+            closeAbatimento();
+            cacheInvalidate('credit_sales');
+            fetchSalesWithInstallments();
+        } catch (error) {
+            const mensagem = error instanceof Error ? error.message : String(error);
+            console.error('Erro ao registrar abatimento:', error);
+            notify.error(
+                aplicadas > 0
+                    ? `Erro após gravar ${aplicadas} de ${plano.length} parcelas`
+                    : 'Erro ao registrar abatimento',
+                { description: mensagem }
+            );
+            // Recarrega mesmo em erro: o que entrou precisa aparecer na tela.
+            cacheInvalidate('credit_sales');
+            fetchSalesWithInstallments();
+        } finally {
+            setSalvandoAbatimento(false);
         }
     };
 
@@ -440,7 +603,9 @@ const Credit: React.FC = () => {
 
         const clientName = sale.cliente.nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
         const fileName = `resumo_${clientName}.png`;
-        const textoPadrao = `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de R$ ${sale.valor_total.toFixed(2)}. — Rubia Joias 💎`;
+        // formatCurrency em vez de toFixed(2): este texto vai para a cliente, e
+        // `toFixed` escreve "R$ 200.00" com ponto — em português o separador é vírgula.
+        const textoPadrao = `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de ${formatCurrency(sale.valor_total)}. — Obrigado, Deus abençoe!`;
 
         try {
             // ============== RAMO A: share nativo de arquivos (celular) ==============
@@ -964,6 +1129,13 @@ const Credit: React.FC = () => {
                                                             <span className="text-sm font-bold text-gray-800">
                                                                 R$ {Number(installment.valor_parcela).toFixed(2)}
                                                             </span>
+                                                            {!installment.pago && Number(installment.valor_pago) > 0 && (
+                                                                <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded-full whitespace-nowrap">
+                                                                    pago R$ {Number(installment.valor_pago).toFixed(2)}
+                                                                    {installment.data_pagamento && ` em ${formatDate(installment.data_pagamento)}`}
+                                                                    {' · '}falta R$ {Number(installment.saldo_devedor).toFixed(2)}
+                                                                </span>
+                                                            )}
                                                             {installment.numero_parcela === 0 ? (
                                                                 <span className="text-sm text-green-600 font-semibold">Entrada</span>
                                                             ) : (
@@ -981,6 +1153,18 @@ const Credit: React.FC = () => {
                                                             )}
                                                         </div>
                                                         <div className="flex items-center gap-2">
+                                                            {!installment.pago && (
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setAbatendo(installment);
+                                                                        setAbatimentoValor('');
+                                                                    }}
+                                                                    className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                                                                    title="Abater um valor (pagamento parcial)"
+                                                                >
+                                                                    <Banknote className="w-4 h-4" />
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 onClick={() => handleEditInstallment(installment)}
                                                                 className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
@@ -1017,6 +1201,139 @@ const Credit: React.FC = () => {
 
             {/* Recibo renderizado sob demanda (só quando captura imagem) */}
             {capturingSale && <SaleReceipt sale={capturingSale} />}
+
+            {/* Modal de Abatimento (pagamento parcial de uma parcela) */}
+            {abatendo && (() => {
+                const saldo = roundMoney(Number(abatendo.saldo_devedor));
+                const fila = filaDoAbatimento(abatendo);
+                const totalEmAberto = roundMoney(fila.reduce((s, p) => s + Number(p.saldo_devedor), 0));
+                const digitado = roundMoney(parseFloat(abatimentoValor.replace(',', '.')));
+                const temValor = Number.isFinite(digitado) && digitado > 0;
+                const { plano, sobra } = temValor
+                    ? distribuirPagamento(digitado, fila)
+                    : { plano: [] as AplicacaoPagamento[], sobra: 0 };
+                const valido = temValor && sobra === 0;
+
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+                            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-800">Abater valor</h3>
+                                    <p className="text-sm text-gray-500">
+                                        {abatendo.numero_parcela}ª parcela · vence {formatDate(abatendo.data_vencimento)}
+                                    </p>
+                                </div>
+                                <button onClick={closeAbatimento} className="text-gray-400 hover:text-gray-600">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="p-6 space-y-4">
+                                <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
+                                    <div className="flex justify-between text-gray-600">
+                                        <span>Valor da parcela:</span>
+                                        <span>R$ {Number(abatendo.valor_parcela).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-gray-600">
+                                        <span>Já pago:</span>
+                                        <span>R$ {Number(abatendo.valor_pago).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between font-bold text-gray-800 pt-1 border-t border-gray-200">
+                                        <span>Saldo atual:</span>
+                                        <span>R$ {saldo.toFixed(2)}</span>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Quanto a cliente está pagando agora?
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        max={totalEmAberto}
+                                        autoFocus
+                                        value={abatimentoValor}
+                                        onChange={(e) => setAbatimentoValor(e.target.value)}
+                                        placeholder="0,00"
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                                    />
+                                    <div className="mt-2 flex flex-wrap gap-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => setAbatimentoValor(saldo.toFixed(2))}
+                                            className="text-xs text-pink-600 hover:text-pink-700 font-semibold"
+                                        >
+                                            Quitar esta parcela (R$ {saldo.toFixed(2)})
+                                        </button>
+                                        {fila.length > 1 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setAbatimentoValor(totalEmAberto.toFixed(2))}
+                                                className="text-xs text-pink-600 hover:text-pink-700 font-semibold"
+                                            >
+                                                Quitar tudo (R$ {totalEmAberto.toFixed(2)})
+                                            </button>
+                                        )}
+                                    </div>
+                                    {fila.length > 1 && (
+                                        <p className="mt-2 text-xs text-gray-500">
+                                            Pode digitar mais que esta parcela: o troco desce para as seguintes.
+                                        </p>
+                                    )}
+                                </div>
+
+                                {temValor && sobra > 0 && (
+                                    <div className="rounded-lg p-4 text-sm bg-red-50 text-red-800">
+                                        Sobram <strong>R$ {sobra.toFixed(2)}</strong> sem parcela para abater — desta
+                                        parcela em diante a cliente deve R$ {totalEmAberto.toFixed(2)}.
+                                    </div>
+                                )}
+
+                                {valido && (
+                                    <div className="rounded-lg p-4 text-sm bg-gray-50 space-y-2">
+                                        <p className="font-semibold text-gray-700">Como será aplicado:</p>
+                                        {plano.map(item => (
+                                            <div key={item.parcela.id} className="flex justify-between items-baseline gap-3">
+                                                <span className="text-gray-600">
+                                                    {item.parcela.numero_parcela === 0 ? 'Entrada' : `${item.parcela.numero_parcela}ª parcela`}
+                                                    <span className="text-gray-400"> · R$ {item.aplicar.toFixed(2)}</span>
+                                                </span>
+                                                {item.novoSaldo === 0 ? (
+                                                    <span className="text-green-700 font-semibold whitespace-nowrap">quita</span>
+                                                ) : (
+                                                    <span className="text-amber-700 font-semibold whitespace-nowrap">
+                                                        falta R$ {item.novoSaldo.toFixed(2)}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="p-6 border-t border-gray-200 flex gap-3">
+                                <button
+                                    onClick={closeAbatimento}
+                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleAbater}
+                                    disabled={!valido || salvandoAbatimento}
+                                    className="flex-1 px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    {salvandoAbatimento && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    Registrar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Modal de Renegociação */}
             {renegotiating && (

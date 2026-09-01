@@ -14,6 +14,9 @@ interface Installment {
     venda_id: string
     numero_parcela: number
     valor_parcela: number
+    // Quanto ainda falta nesta parcela. É o que se cobra: com pagamento parcial,
+    // usar valor_parcela pediria de novo o que a cliente já pagou.
+    saldo_devedor: number
     data_vencimento: string
     pago: boolean
     venda: {
@@ -88,6 +91,7 @@ serve(async (req) => {
         venda_id,
         numero_parcela,
         valor_parcela,
+        saldo_devedor,
         data_vencimento,
         pago,
         venda:vendas!inner (
@@ -131,6 +135,7 @@ serve(async (req) => {
                 venda_id: parcela.venda_id,
                 numero_parcela: parcela.numero_parcela,
                 valor_parcela: parcela.valor_parcela,
+                saldo_devedor: parcela.saldo_devedor,
                 data_vencimento: parcela.data_vencimento,
                 pago: parcela.pago,
                 venda: {
@@ -160,7 +165,7 @@ serve(async (req) => {
         if (parcelasHoje.length > 0) {
             mensagem += `🔴 *VENCENDO HOJE* (${parcelasHoje.length}):\n`
             parcelasHoje.forEach(p => {
-                mensagem += `• ${p.venda.cliente.nome} - R$ ${Number(p.valor_parcela).toFixed(2)}\n`
+                mensagem += `• ${p.venda.cliente.nome} - R$ ${Number(p.saldo_devedor).toFixed(2)}\n`
             })
             mensagem += '\n'
         }
@@ -168,7 +173,7 @@ serve(async (req) => {
         if (parcelas2Dias.length > 0) {
             mensagem += `⚠️ *VENCE EM 2 DIAS* (${parcelas2Dias.length}):\n`
             parcelas2Dias.forEach(p => {
-                mensagem += `• ${p.venda.cliente.nome} - R$ ${Number(p.valor_parcela).toFixed(2)}\n`
+                mensagem += `• ${p.venda.cliente.nome} - R$ ${Number(p.saldo_devedor).toFixed(2)}\n`
             })
             mensagem += '\n'
         }
@@ -176,13 +181,13 @@ serve(async (req) => {
         if (parcelas3Dias.length > 0) {
             mensagem += `📅 *VENCE EM 3 DIAS* (${parcelas3Dias.length}):\n`
             parcelas3Dias.forEach(p => {
-                mensagem += `• ${p.venda.cliente.nome} - R$ ${Number(p.valor_parcela).toFixed(2)}\n`
+                mensagem += `• ${p.venda.cliente.nome} - R$ ${Number(p.saldo_devedor).toFixed(2)}\n`
             })
             mensagem += '\n'
         }
 
         // Calcular total
-        const totalReceber = parcelas.reduce((sum: number, p: any) => sum + Number(p.valor_parcela), 0)
+        const totalReceber = parcelas.reduce((sum: number, p: any) => sum + Number(p.saldo_devedor), 0)
         mensagem += `💰 *Total a receber:* R$ ${totalReceber.toFixed(2)}\n\n`
         mensagem += `---\n_Enviado automaticamente pelo sistema Rubia Joias_`
 

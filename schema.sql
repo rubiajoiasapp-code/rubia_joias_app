@@ -73,6 +73,92 @@ CREATE TABLE IF NOT EXISTS parcelas_pagar (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 8. Parcelas de Venda (crediário / fiado)
+-- Criada em migration_create_parcelas_venda.sql; pagamento parcial adicionado em
+-- migration_add_pagamento_parcial.sql.
+CREATE TABLE IF NOT EXISTS parcelas_venda (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    venda_id UUID REFERENCES vendas(id) ON DELETE CASCADE,
+    numero_parcela INTEGER NOT NULL,
+    valor_parcela DECIMAL(10, 2) NOT NULL,
+    data_vencimento DATE NOT NULL,
+    data_pagamento DATE,
+    pago BOOLEAN DEFAULT FALSE,
+    -- Quanto já foi pago desta parcela. Permite pagamento parcial: a cliente paga
+    -- R$ 45,68 de uma parcela de R$ 100,00 e o restante fica pendurado.
+    valor_pago DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    -- Derivada: o banco calcula, para que nenhuma tela possa divergir em silêncio.
+    saldo_devedor DECIMAL(10, 2) GENERATED ALWAYS AS (valor_parcela - valor_pago) STORED,
+    observacoes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT parcelas_venda_valor_pago_valido
+        CHECK (valor_pago >= 0 AND valor_pago <= valor_parcela)
+);
+
+CREATE INDEX IF NOT EXISTS idx_parcelas_venda_venda_id ON parcelas_venda(venda_id);
+CREATE INDEX IF NOT EXISTS idx_parcelas_venda_pago ON parcelas_venda(pago);
+CREATE INDEX IF NOT EXISTS idx_parcelas_venda_data_vencimento ON parcelas_venda(data_vencimento);
+
+-- Mantém updated_at em dia (usado também por outras tabelas).
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_parcelas_venda_updated_at ON parcelas_venda;
+CREATE TRIGGER update_parcelas_venda_updated_at
+    BEFORE UPDATE ON parcelas_venda
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Mantém `pago` e `valor_pago` coerentes nos dois sentidos, para que as telas que
+-- escrevem `pago` continuem funcionando sem alteração. Detalhes e justificativa de cada
+-- passo em migration_add_pagamento_parcial.sql.
+CREATE OR REPLACE FUNCTION parcelas_venda_sincronizar_pagamento()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.valor_pago > NEW.valor_parcela THEN
+        NEW.valor_pago := NEW.valor_parcela;
+    END IF;
+    IF NEW.valor_pago < 0 THEN
+        NEW.valor_pago := 0;
+    END IF;
+
+    IF TG_OP = 'UPDATE' AND NEW.pago IS DISTINCT FROM OLD.pago THEN
+        NEW.valor_pago := CASE WHEN NEW.pago THEN NEW.valor_parcela ELSE 0 END;
+    ELSIF TG_OP = 'INSERT' AND NEW.pago AND NEW.valor_pago < NEW.valor_parcela THEN
+        NEW.valor_pago := NEW.valor_parcela;
+    ELSE
+        NEW.pago := (NEW.valor_pago >= NEW.valor_parcela);
+    END IF;
+
+    -- data_pagamento = data do ÚLTIMO pagamento recebido (parcial ou total).
+    -- Só avança quando valor_pago aumenta: aparar por redução de valor_parcela não é
+    -- dinheiro entrando e não deve mexer na data.
+    IF NEW.valor_pago = 0 THEN
+        NEW.data_pagamento := NULL;
+    ELSIF TG_OP = 'INSERT' OR NEW.valor_pago > OLD.valor_pago THEN
+        NEW.data_pagamento := (now() AT TIME ZONE 'America/Sao_Paulo')::date;
+    ELSIF NEW.data_pagamento IS NULL THEN
+        NEW.data_pagamento := (now() AT TIME ZONE 'America/Sao_Paulo')::date;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS parcelas_venda_sincronizar_pagamento ON parcelas_venda;
+CREATE TRIGGER parcelas_venda_sincronizar_pagamento
+    BEFORE INSERT OR UPDATE ON parcelas_venda
+    FOR EACH ROW
+    EXECUTE FUNCTION parcelas_venda_sincronizar_pagamento();
+
 -- Feature: Lista de Conferência de Estoque
 -- security_invoker: sem isso a view roda com o privilégio do dono (postgres), que ignora
 -- RLS — viraria um desvio para ler produtos inteiros sem passar pelas policies.

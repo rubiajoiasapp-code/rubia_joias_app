@@ -70,9 +70,25 @@ export interface ParcelaForTier {
     pago: boolean;
     data_vencimento: string;
     data_pagamento: string | null;
+    valor_parcela: number;
+    saldo_devedor: number;
 }
 
 const REDEMPTION_WINDOW = 3;
+
+/**
+ * Quanto do que está vencido já foi pago para a cliente merecer alívio de um nível.
+ *
+ * Quem pagou R$ 95 de uma parcela de R$ 100 vencida não é a mesma coisa que quem não
+ * pagou nada — mas continua devendo, então a parcela segue contando como vencida; o que
+ * muda é a gravidade. 70% é o ponto onde o comportamento já é claramente "está pagando"
+ * e não "parou de pagar".
+ *
+ * Deliberadamente NÃO existe piso por valor aqui. Ele rebaixaria clientes que apenas
+ * devem pouco e não pagaram nada — inclusive uma cliente com R$ 100 e 101 dias de
+ * atraso, onde o tempo é o sinal, não o valor.
+ */
+const ALIVIO_POR_PAGAMENTO_PARCIAL = 0.7;
 
 export function classifyClient(parcelas: ParcelaForTier[]): ClientTier {
     if (!parcelas || parcelas.length === 0) return 'NOVO';
@@ -94,7 +110,18 @@ export function classifyClient(parcelas: ParcelaForTier[]): ClientTier {
             const days = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
             return days > max ? days : max;
         }, 0);
-        return maxDaysLate > 30 ? 'CRITICO' : 'ATENCAO';
+
+        // Crédito por pagamento parcial: se a maior parte do que está vencido já entrou,
+        // a cliente está pagando, não sumindo — a gravidade cai um nível.
+        const totalVencido = openOverdue.reduce((s, p) => s + Number(p.valor_parcela ?? 0), 0);
+        const saldoVencido = openOverdue.reduce((s, p) => s + Number(p.saldo_devedor ?? p.valor_parcela ?? 0), 0);
+        const proporcaoPaga = totalVencido > 0 ? 1 - saldoVencido / totalVencido : 0;
+        const pagouAMaiorParte = proporcaoPaga >= ALIVIO_POR_PAGAMENTO_PARCIAL;
+
+        if (maxDaysLate > 30) return pagouAMaiorParte ? 'ATENCAO' : 'CRITICO';
+        // Em ATENCAO, o alívio deixa a classificação seguir para o histórico de
+        // pagamentos abaixo — que decide entre EXCELENTE e BOM.
+        if (!pagouAMaiorParte) return 'ATENCAO';
     }
 
     const paidParcelas = parcelas.filter(p => p.pago && p.data_pagamento);
@@ -139,7 +166,7 @@ export function tierRank(tier: ClientTier): number {
 export async function fetchClientTierMap(): Promise<Record<string, ClientTier>> {
     const { data, error } = await supabase
         .from('parcelas_venda')
-        .select('pago, data_vencimento, data_pagamento, venda:vendas(cliente_id)');
+        .select('pago, data_vencimento, data_pagamento, valor_parcela, saldo_devedor, venda:vendas(cliente_id)');
 
     if (error) {
         console.error('Error fetching parcelas for tier classification:', error);
@@ -151,6 +178,8 @@ export async function fetchClientTierMap(): Promise<Record<string, ClientTier>> 
         pago: boolean;
         data_vencimento: string;
         data_pagamento: string | null;
+        valor_parcela: number;
+        saldo_devedor: number;
         venda: { cliente_id: string | null } | { cliente_id: string | null }[] | null;
     }>) {
         const vendaRef = Array.isArray(row.venda) ? row.venda[0] : row.venda;
@@ -161,6 +190,8 @@ export async function fetchClientTierMap(): Promise<Record<string, ClientTier>> 
             pago: row.pago,
             data_vencimento: row.data_vencimento,
             data_pagamento: row.data_pagamento,
+            valor_parcela: Number(row.valor_parcela),
+            saldo_devedor: Number(row.saldo_devedor),
         });
     }
 

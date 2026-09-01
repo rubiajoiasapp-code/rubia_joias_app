@@ -32,3 +32,6 @@ dist-ssr
 # não apague antes de conferir que o catálogo está correto.
 backup-imagens/
 amostras-compressao/
+
+# Estado local do Supabase CLI (project ref, credenciais de link)
+supabase/.temp/
