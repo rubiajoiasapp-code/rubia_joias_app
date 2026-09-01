@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .gstack/
+
+# Claude Code — config local, pode conter segredos
+.claude/settings.local.json
