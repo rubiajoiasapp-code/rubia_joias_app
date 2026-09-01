@@ -26,3 +26,9 @@ dist-ssr
 
 # Claude Code — config local, pode conter segredos
 .claude/settings.local.json
+
+# Manutenção de storage: originais e amostras ficam só na máquina.
+# backup-imagens/ é a rede de segurança do comprimir-imagens.mjs --restore;
+# não apague antes de conferir que o catálogo está correto.
+backup-imagens/
+amostras-compressao/

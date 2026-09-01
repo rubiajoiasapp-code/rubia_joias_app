@@ -127,11 +127,71 @@ const Inventory: React.FC = () => {
         reader.readAsDataURL(file);
     };
 
+    // Fotos vêm da câmera do celular em ~4000x2252 e 1-3 MB cada, o que estourava a cota
+    // de Storage. O catálogo nunca exibe mais que 1600px, então redimensionamos antes de
+    // subir — na prática reduz ~94% sem perda visível de detalhe da peça.
+    // Se qualquer etapa falhar, devolve o arquivo original: encolher é otimização, não
+    // pode impedir a dona de cadastrar um produto.
+    const MAX_DIMENSAO = 1600;
+    const QUALIDADE_JPEG = 0.82;
+
+    const comprimirImagem = async (file: File): Promise<Blob> => {
+        try {
+            // 'from-image' aplica a orientação do EXIF; sem isso, foto de celular
+            // sobe deitada, porque o canvas descarta esse metadado.
+            const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+
+            const escala = Math.min(1, MAX_DIMENSAO / Math.max(bitmap.width, bitmap.height));
+            const largura = Math.round(bitmap.width * escala);
+            const altura = Math.round(bitmap.height * escala);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = largura;
+            canvas.height = altura;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return file;
+            ctx.drawImage(bitmap, 0, 0, largura, altura);
+            bitmap.close();
+
+            const blob = await new Promise<Blob | null>((resolve) =>
+                canvas.toBlob(resolve, 'image/jpeg', QUALIDADE_JPEG)
+            );
+
+            // Só troca se realmente ficou menor (imagem já pequena pode até crescer).
+            if (!blob || blob.size >= file.size) return file;
+
+            console.log(`🗜️ Imagem comprimida: ${(file.size / 1024).toFixed(0)} KB → ${(blob.size / 1024).toFixed(0)} KB`);
+            return blob;
+        } catch (e) {
+            console.warn('⚠️ Compressão falhou, subindo a imagem original.', e);
+            return file;
+        }
+    };
+
+    // Trocar a foto de uma peça grava um arquivo novo (o nome leva Date.now()). Sem
+    // remover o anterior, ele fica ocupando cota para sempre — foi assim que 113
+    // arquivos órfãos se acumularam. Só é chamado DEPOIS que o banco já aponta para a
+    // imagem nova: se a exclusão falhar, o pior caso é um arquivo sobrando, nunca um
+    // produto sem foto.
+    const removerImagemAntiga = async (urlAntiga: string | null, urlNova: string | null) => {
+        if (!urlAntiga || urlAntiga === urlNova) return;
+        const caminho = urlAntiga.split('/product-images/')[1];
+        if (!caminho) return; // URL externa ou de outro bucket: não é nossa para apagar
+        try {
+            await supabase.storage.from('product-images').remove([decodeURIComponent(caminho)]);
+            console.log('🧹 Imagem anterior removida:', caminho);
+        } catch (e) {
+            console.warn('⚠️ Não foi possível remover a imagem anterior:', e);
+        }
+    };
+
     const uploadImage = async (file: File, productCode: string): Promise<string | null> => {
         try {
             console.log('🖼️ Iniciando upload da imagem...', file.name);
 
-            const fileExt = file.name.split('.').pop();
+            const imagem = await comprimirImagem(file);
+            const comprimiu = imagem !== file;
+            const fileExt = comprimiu ? 'jpg' : file.name.split('.').pop();
             const fileName = `${productCode}_${Date.now()}.${fileExt}`;
             const filePath = `products/${fileName}`;
 
@@ -139,7 +199,7 @@ const Inventory: React.FC = () => {
 
             const { data: uploadData, error: uploadError } = await supabase.storage
                 .from('product-images')
-                .upload(filePath, file);
+                .upload(filePath, imagem, comprimiu ? { contentType: 'image/jpeg' } : undefined);
 
             if (uploadError) {
                 console.error('❌ Erro no upload:', uploadError);
@@ -334,6 +394,7 @@ const Inventory: React.FC = () => {
                     .eq('id', editingProduct.id);
 
                 if (error) throw error;
+                await removerImagemAntiga(editingProduct.image_url, imageUrl);
                 notify.success('Produto atualizado com sucesso!');
             } else {
                 // Insert new product
@@ -375,12 +436,17 @@ const Inventory: React.FC = () => {
         if (!ok) return;
 
         try {
+            const imagemDoProduto = products.find(p => p.id === id)?.image_url ?? null;
+
             const { error } = await supabase
                 .from('produtos')
                 .delete()
                 .eq('id', id);
 
             if (error) throw error;
+            // Só depois que a linha saiu: se a exclusão do produto falhar (por exemplo,
+            // por venda já registrada), a foto tem que continuar lá.
+            await removerImagemAntiga(imagemDoProduto, null);
             cacheInvalidate('inventory_products');
             fetchProducts();
         } catch (error: any) {
