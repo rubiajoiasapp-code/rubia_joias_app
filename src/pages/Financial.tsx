@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { splitInstallments, roundMoney } from '../lib/format';
+import { splitInstallments, roundMoney, formatCurrency } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import { notify } from '../lib/notify';
 import {
@@ -578,7 +578,7 @@ const Financial: React.FC = () => {
                                         className="col-span-2 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
                                     />
                                     <div className="col-span-2 px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm font-semibold text-gray-700 flex items-center">
-                                        R$ {valorTotal.toFixed(2)}
+                                        {formatCurrency(valorTotal)}
                                     </div>
                                     <button
                                         type="button"
@@ -619,12 +619,12 @@ const Financial: React.FC = () => {
                                     <p className="text-sm text-gray-600">{expense.descricao}</p>
                                     <p className="text-xs text-gray-500">
                                         {new Date(expense.created_at).toLocaleDateString()} •
-                                        {expense.numero_parcelas}x de R$ {(expense.valor_total / expense.numero_parcelas).toFixed(2)}
+                                        {expense.numero_parcelas}x de {formatCurrency((expense.valor_total / expense.numero_parcelas))}
                                     </p>
                                 </div>
                                 <div className="flex items-center space-x-4">
                                     <span className="text-lg font-bold text-gray-800">
-                                        R$ {expense.valor_total.toFixed(2)}
+                                        {formatCurrency(expense.valor_total)}
                                     </span>
                                     <button
                                         onClick={(e) => {
@@ -703,7 +703,7 @@ const Financial: React.FC = () => {
                                                         /* View Mode */
                                                         <>
                                                             <td className="p-2">{new Date(installment.data_vencimento).toLocaleDateString()}</td>
-                                                            <td className="p-2">R$ {installment.valor_parcela.toFixed(2)}</td>
+                                                            <td className="p-2">{formatCurrency(installment.valor_parcela)}</td>
                                                             <td className="p-2">
                                                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${installment.pago ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                                                     {installment.pago ? 'PAGO' : 'PENDENTE'}

@@ -367,7 +367,7 @@ const Credit: React.FC = () => {
 
         if (sobra > 0) {
             notify.warning('Valor maior do que a cliente deve.', {
-                description: `Desta parcela em diante o total em aberto é R$ ${totalEmAberto.toFixed(2)}.`,
+                description: `Desta parcela em diante o total em aberto é ${formatCurrency(totalEmAberto)}.`,
             });
             return;
         }
@@ -400,7 +400,7 @@ const Credit: React.FC = () => {
                     : quitadas === 1 ? 'Parcela quitada!' : 'Abatimento registrado',
                 {
                     description: emAberto
-                        ? `${quitadas > 0 ? `${quitadas} quitada(s). ` : ''}Saldo restante na ${emAberto.parcela.numero_parcela}ª: R$ ${emAberto.novoSaldo.toFixed(2)}`
+                        ? `${quitadas > 0 ? `${quitadas} quitada(s). ` : ''}Saldo restante na ${emAberto.parcela.numero_parcela}ª: ${formatCurrency(emAberto.novoSaldo)}`
                         : undefined,
                 }
             );
@@ -744,9 +744,9 @@ const Credit: React.FC = () => {
         const ok = await notify.confirm({
             title: 'Confirmar renegociação?',
             description:
-                `Saldo pendente: R$ ${saldoPendente.toFixed(2)}\n` +
-                `Entrada: R$ ${downPayment.toFixed(2)}\n` +
-                `Novas parcelas: ${newInstallments}× de ~R$ ${(valores[0] || 0).toFixed(2)}\n\n` +
+                `Saldo pendente: ${formatCurrency(saldoPendente)}\n` +
+                `Entrada: ${formatCurrency(downPayment)}\n` +
+                `Novas parcelas: ${newInstallments}× de ~${formatCurrency((valores[0] || 0))}\n\n` +
                 `As parcelas antigas não pagas serão canceladas.`,
             confirmText: 'Renegociar',
         });
@@ -977,17 +977,17 @@ const Credit: React.FC = () => {
                                             <DollarSign className="w-5 h-5 text-pink-600" />
                                             <div>
                                                 <p className="text-sm text-gray-500">Valor Total</p>
-                                                <p className="font-semibold text-gray-800">R$ {sale.valor_total.toFixed(2)}</p>
+                                                <p className="font-semibold text-gray-800">{formatCurrency(sale.valor_total)}</p>
                                             </div>
                                         </div>
                                         <div>
                                             <p className="text-sm text-gray-500 mb-1">Status</p>
                                             <div className="flex flex-wrap gap-2 text-xs">
                                                 <span className="bg-green-100 text-green-700 px-2 py-1 rounded">
-                                                    Pago: R$ {sale.totalPago.toFixed(2)}
+                                                    Pago: {formatCurrency(sale.totalPago)}
                                                 </span>
                                                 <span className="bg-red-100 text-red-700 px-2 py-1 rounded">
-                                                    Pendente: R$ {sale.totalPendente.toFixed(2)}
+                                                    Pendente: {formatCurrency(sale.totalPendente)}
                                                 </span>
                                             </div>
                                         </div>
@@ -1130,15 +1130,15 @@ const Credit: React.FC = () => {
                                                                 {installment.numero_parcela}ª parcela
                                                             </span>
                                                             <span className="text-sm font-bold text-gray-800">
-                                                                R$ {Number(installment.valor_parcela).toFixed(2)}
+                                                                {formatCurrency(Number(installment.valor_parcela))}
                                                             </span>
                                                             {!installment.pago && Number(installment.valor_pago) > 0 && (
                                                                 <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded-full whitespace-nowrap">
                                                                     {/* Data curta (dd/MM): o ano deixa o selo longo demais
                                                                         e a parcela é sempre do ano corrente na prática. */}
-                                                                    pago R$ {Number(installment.valor_pago).toFixed(2)}
+                                                                    pago {formatCurrency(Number(installment.valor_pago))}
                                                                     {installment.data_pagamento && ` em ${formatDate(installment.data_pagamento).slice(0, 5)}`}
-                                                                    {' · '}falta R$ {Number(installment.saldo_devedor).toFixed(2)}
+                                                                    {' · '}falta {formatCurrency(Number(installment.saldo_devedor))}
                                                                 </span>
                                                             )}
                                                             {installment.numero_parcela === 0 ? (
@@ -1238,15 +1238,15 @@ const Credit: React.FC = () => {
                                 <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
                                     <div className="flex justify-between text-gray-600">
                                         <span>Valor da parcela:</span>
-                                        <span>R$ {Number(abatendo.valor_parcela).toFixed(2)}</span>
+                                        <span>{formatCurrency(Number(abatendo.valor_parcela))}</span>
                                     </div>
                                     <div className="flex justify-between text-gray-600">
                                         <span>Já pago:</span>
-                                        <span>R$ {Number(abatendo.valor_pago).toFixed(2)}</span>
+                                        <span>{formatCurrency(Number(abatendo.valor_pago))}</span>
                                     </div>
                                     <div className="flex justify-between font-bold text-gray-800 pt-1 border-t border-gray-200">
                                         <span>Saldo atual:</span>
-                                        <span>R$ {saldo.toFixed(2)}</span>
+                                        <span>{formatCurrency(saldo)}</span>
                                     </div>
                                 </div>
 
@@ -1271,7 +1271,7 @@ const Credit: React.FC = () => {
                                             onClick={() => setAbatimentoValor(saldo.toFixed(2))}
                                             className="text-xs text-pink-600 hover:text-pink-700 font-semibold"
                                         >
-                                            Quitar esta parcela (R$ {saldo.toFixed(2)})
+                                            Quitar esta parcela ({formatCurrency(saldo)})
                                         </button>
                                         {fila.length > 1 && (
                                             <button
@@ -1279,7 +1279,7 @@ const Credit: React.FC = () => {
                                                 onClick={() => setAbatimentoValor(totalEmAberto.toFixed(2))}
                                                 className="text-xs text-pink-600 hover:text-pink-700 font-semibold"
                                             >
-                                                Quitar tudo (R$ {totalEmAberto.toFixed(2)})
+                                                Quitar tudo ({formatCurrency(totalEmAberto)})
                                             </button>
                                         )}
                                     </div>
@@ -1292,8 +1292,8 @@ const Credit: React.FC = () => {
 
                                 {temValor && sobra > 0 && (
                                     <div className="rounded-lg p-4 text-sm bg-red-50 text-red-800">
-                                        Sobram <strong>R$ {sobra.toFixed(2)}</strong> sem parcela para abater — desta
-                                        parcela em diante a cliente deve R$ {totalEmAberto.toFixed(2)}.
+                                        Sobram <strong>{formatCurrency(sobra)}</strong> sem parcela para abater — desta
+                                        parcela em diante a cliente deve {formatCurrency(totalEmAberto)}.
                                     </div>
                                 )}
 
@@ -1304,13 +1304,13 @@ const Credit: React.FC = () => {
                                             <div key={item.parcela.id} className="flex justify-between items-baseline gap-3">
                                                 <span className="text-gray-600">
                                                     {item.parcela.numero_parcela === 0 ? 'Entrada' : `${item.parcela.numero_parcela}ª parcela`}
-                                                    <span className="text-gray-400"> · R$ {item.aplicar.toFixed(2)}</span>
+                                                    <span className="text-gray-400"> · {formatCurrency(item.aplicar)}</span>
                                                 </span>
                                                 {item.novoSaldo === 0 ? (
                                                     <span className="text-green-700 font-semibold whitespace-nowrap">quita</span>
                                                 ) : (
                                                     <span className="text-amber-700 font-semibold whitespace-nowrap">
-                                                        falta R$ {item.novoSaldo.toFixed(2)}
+                                                        falta {formatCurrency(item.novoSaldo)}
                                                     </span>
                                                 )}
                                             </div>
@@ -1364,7 +1364,7 @@ const Credit: React.FC = () => {
                             {/* Saldo Pendente */}
                             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                 <p className="text-sm text-orange-700 mb-1">Saldo Pendente</p>
-                                <p className="text-2xl font-bold text-orange-900">R$ {renegotiating.totalPendente.toFixed(2)}</p>
+                                <p className="text-2xl font-bold text-orange-900">{formatCurrency(renegotiating.totalPendente)}</p>
                             </div>
 
                             {/* Entrada */}
@@ -1410,11 +1410,11 @@ const Credit: React.FC = () => {
                                     <div className="mt-2 text-xs space-y-1">
                                         <div className="flex justify-between text-gray-600">
                                             <span>Entrada:</span>
-                                            <span className="font-semibold text-green-600">R$ {renegotiationForm.downPayment.toFixed(2)}</span>
+                                            <span className="font-semibold text-green-600">{formatCurrency(renegotiationForm.downPayment)}</span>
                                         </div>
                                         <div className="flex justify-between text-gray-600">
                                             <span>Novo saldo:</span>
-                                            <span className="font-semibold text-orange-600">R$ {(renegotiating.totalPendente - renegotiationForm.downPayment).toFixed(2)}</span>
+                                            <span className="font-semibold text-orange-600">{formatCurrency((renegotiating.totalPendente - renegotiationForm.downPayment))}</span>
                                         </div>
                                     </div>
                                 )}
@@ -1433,7 +1433,7 @@ const Credit: React.FC = () => {
                                         const valorParcela = novoSaldo / num;
                                         return (
                                             <option key={num} value={num}>
-                                                {num}x de R$ {valorParcela.toFixed(2)}
+                                                {num}x de {formatCurrency(valorParcela)}
                                             </option>
                                         );
                                     })}
@@ -1445,9 +1445,9 @@ const Credit: React.FC = () => {
                                 <p className="text-xs font-semibold text-blue-900 mb-2">Preview:</p>
                                 <div className="text-xs text-blue-800 space-y-1">
                                     {renegotiationForm.downPayment > 0 && (
-                                        <p>• 1 entrada de R$ {renegotiationForm.downPayment.toFixed(2)} (paga hoje)</p>
+                                        <p>• 1 entrada de {formatCurrency(renegotiationForm.downPayment)} (paga hoje)</p>
                                     )}
-                                    <p>• {renegotiationForm.newInstallments} parcelas de R$ {((renegotiating.totalPendente - renegotiationForm.downPayment) / renegotiationForm.newInstallments).toFixed(2)} (a pagar)</p>
+                                    <p>• {renegotiationForm.newInstallments} parcelas de {formatCurrency(((renegotiating.totalPendente - renegotiationForm.downPayment) / renegotiationForm.newInstallments))} (a pagar)</p>
                                 </div>
                             </div>
                         </div>

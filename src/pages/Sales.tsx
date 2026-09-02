@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { ShoppingCart, Search, QrCode, Package as PackageIcon, Trash2, CreditCard, Camera, X, ArrowDown } from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
-import { nowLocalISO, todayLocalISO, splitInstallments, roundMoney } from '../lib/format';
+import { nowLocalISO, todayLocalISO, splitInstallments, roundMoney, formatCurrency } from '../lib/format';
 import type { ClientTier } from '../lib/clientTier';
 import { TIER_INFO, fetchClientTierMap } from '../lib/clientTier';
 import { notify } from '../lib/notify';
@@ -465,7 +465,7 @@ const Sales: React.FC = () => {
                                         {product.descricao}
                                     </h3>
                                     <div className="text-lg font-bold text-gray-900">
-                                        R$ {product.valor_venda.toFixed(2)}
+                                        {formatCurrency(product.valor_venda)}
                                     </div>
                                     <div className="text-xs text-gray-500 mt-1">
                                         Est: {product.quantidade_estoque}
@@ -526,7 +526,7 @@ const Sales: React.FC = () => {
                                 <div key={item.id} className="flex items-center justify-between mb-3 pb-3 border-b border-gray-100">
                                     <div className="flex-1">
                                         <h4 className="text-sm font-medium text-gray-800">{item.descricao}</h4>
-                                        <p className="text-xs text-gray-500">R$ {item.valor_venda.toFixed(2)}</p>
+                                        <p className="text-xs text-gray-500">{formatCurrency(item.valor_venda)}</p>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <input
@@ -658,15 +658,15 @@ const Sales: React.FC = () => {
                                     <div className="mt-2 text-xs space-y-1">
                                         <div className="flex justify-between text-gray-600">
                                             <span>Subtotal:</span>
-                                            <span className="font-semibold">R$ {calculateTotal().toFixed(2)}</span>
+                                            <span className="font-semibold">{formatCurrency(calculateTotal())}</span>
                                         </div>
                                         <div className="flex justify-between text-gray-600">
                                             <span>Desconto ({discount}%):</span>
-                                            <span className="font-semibold text-green-600">- R$ {(calculateTotal() * discount / 100).toFixed(2)}</span>
+                                            <span className="font-semibold text-green-600">- {formatCurrency((calculateTotal() * discount / 100))}</span>
                                         </div>
                                         <div className="flex justify-between text-gray-900 font-bold pt-1 border-t">
                                             <span>Total final:</span>
-                                            <span className="text-pink-600">R$ {calculateFinalTotal().toFixed(2)}</span>
+                                            <span className="text-pink-600">{formatCurrency(calculateFinalTotal())}</span>
                                         </div>
                                     </div>
                                 )}
@@ -715,11 +715,11 @@ const Sales: React.FC = () => {
                                         <div className="mt-2 text-xs space-y-1">
                                             <div className="flex justify-between text-gray-600">
                                                 <span>Entrada:</span>
-                                                <span className="font-semibold text-green-600">R$ {downPayment.toFixed(2)}</span>
+                                                <span className="font-semibold text-green-600">{formatCurrency(downPayment)}</span>
                                             </div>
                                             <div className="flex justify-between text-gray-600">
                                                 <span>Saldo a parcelar:</span>
-                                                <span className="font-semibold text-pink-600">R$ {(calculateTotal() - downPayment).toFixed(2)}</span>
+                                                <span className="font-semibold text-pink-600">{formatCurrency((calculateTotal() - downPayment))}</span>
                                             </div>
                                         </div>
                                     )}
@@ -741,7 +741,7 @@ const Sales: React.FC = () => {
                                             const valorParcela = saldoParcelar / num;
                                             return (
                                                 <option key={num} value={num}>
-                                                    {num}x de R$ {valorParcela.toFixed(2)}
+                                                    {num}x de {formatCurrency(valorParcela)}
                                                 </option>
                                             );
                                         })}
@@ -756,7 +756,7 @@ const Sales: React.FC = () => {
                         <div className="flex justify-between items-center mb-4">
                             <span className="text-lg font-bold text-gray-800">Total:</span>
                             <span className="text-2xl font-bold text-pink-600">
-                                R$ {calculateFinalTotal().toFixed(2)}
+                                {formatCurrency(calculateFinalTotal())}
                             </span>
                         </div>
                         <button
@@ -827,7 +827,7 @@ const Sales: React.FC = () => {
 
                         <div className="flex items-center gap-2">
                             <span className="font-bold text-xl">
-                                R$ {calculateFinalTotal().toFixed(2)}
+                                {formatCurrency(calculateFinalTotal())}
                             </span>
                             <ArrowDown className="w-6 h-6 animate-bounce" />
                         </div>

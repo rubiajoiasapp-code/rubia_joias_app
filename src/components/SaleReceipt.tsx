@@ -1,5 +1,5 @@
 import React from 'react';
-import { notasParaCliente } from '../lib/format';
+import { notasParaCliente, formatCurrency } from '../lib/format';
 
 interface Installment {
     id: string;
@@ -221,7 +221,7 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                             Valor Total
                         </div>
                         <div style={{ fontSize: '22px', fontWeight: 'bold', color: COLORS.primaryDark, lineHeight: 1 }}>
-                            R$ {sale.valor_total.toFixed(2)}
+                            {formatCurrency(sale.valor_total)}
                         </div>
                     </div>
                 </div>
@@ -296,10 +296,10 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                                                 {item.quantidade}
                                             </td>
                                             <td style={{ padding: '12px', fontSize: '13px', color: COLORS.textMuted, textAlign: 'right', borderBottom: rowBorder }}>
-                                                R$ {item.valor_unitario.toFixed(2)}
+                                                {formatCurrency(item.valor_unitario)}
                                             </td>
                                             <td style={{ padding: '12px', fontSize: '13px', color: COLORS.text, textAlign: 'right', borderBottom: rowBorder, fontWeight: 700 }}>
-                                                R$ {itemSubtotal(item).toFixed(2)}
+                                                {formatCurrency(itemSubtotal(item))}
                                             </td>
                                         </tr>
                                     );
@@ -313,17 +313,17 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                         <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px dashed ${COLORS.border}` }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: COLORS.textMuted, marginBottom: '4px' }}>
                                 <span>Subtotal dos produtos</span>
-                                <span style={{ fontWeight: 600, color: COLORS.text }}>R$ {produtosSubtotal.toFixed(2)}</span>
+                                <span style={{ fontWeight: 600, color: COLORS.text }}>{formatCurrency(produtosSubtotal)}</span>
                             </div>
                             {possuiDesconto && produtosSubtotal > sale.valor_total && (
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: COLORS.success, marginBottom: '4px' }}>
                                     <span>Desconto aplicado</span>
-                                    <span style={{ fontWeight: 600 }}>- R$ {(produtosSubtotal - sale.valor_total).toFixed(2)}</span>
+                                    <span style={{ fontWeight: 600 }}>- {formatCurrency((produtosSubtotal - sale.valor_total))}</span>
                                 </div>
                             )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '6px', paddingTop: '6px', borderTop: `1px solid ${COLORS.border}` }}>
                                 <span style={{ fontWeight: 700, color: COLORS.text }}>Total da venda</span>
-                                <span style={{ fontWeight: 700, color: COLORS.primary }}>R$ {sale.valor_total.toFixed(2)}</span>
+                                <span style={{ fontWeight: 700, color: COLORS.primary }}>{formatCurrency(sale.valor_total)}</span>
                             </div>
                         </div>
                     )}
@@ -378,7 +378,7 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                                                 {parcela.numero_parcela === 0 ? '—' : `${parcela.numero_parcela}ª`}
                                             </td>
                                             <td style={{ padding: '10px 12px', fontSize: '12px', color: COLORS.text, textAlign: 'right', fontWeight: 700, borderBottom: rowBorder }}>
-                                                R$ {Number(parcela.valor_parcela).toFixed(2)}
+                                                {formatCurrency(Number(parcela.valor_parcela))}
                                             </td>
                                             <td style={{ padding: '10px 12px', fontSize: '11px', color: COLORS.textMuted, textAlign: 'center', borderBottom: rowBorder }}>
                                                 {parcela.numero_parcela === 0 ? (
@@ -391,7 +391,7 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                                                 {/* Parcela parcial mostra QUANTO e QUANDO — só a data faria a
                                                     cliente achar que a parcela inteira foi paga naquele dia. */}
                                                 {!parcela.pago && Number(parcela.valor_pago) > 0
-                                                    ? `R$ ${Number(parcela.valor_pago).toFixed(2)}${parcela.data_pagamento ? ` em ${formatDate(parcela.data_pagamento)}` : ''}`
+                                                    ? `${formatCurrency(Number(parcela.valor_pago))}${parcela.data_pagamento ? ` em ${formatDate(parcela.data_pagamento)}` : ''}`
                                                     : parcela.data_pagamento
                                                         ? formatDate(parcela.data_pagamento)
                                                         : '—'}
@@ -411,7 +411,7 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                                                         letterSpacing: '0.5px',
                                                         whiteSpace: 'nowrap'
                                                     }}>
-                                                        FALTA R$ {Number(parcela.saldo_devedor).toFixed(2)}
+                                                        FALTA {formatCurrency(Number(parcela.saldo_devedor))}
                                                     </span>
                                                 ) : parcela.pago ? (
                                                     <span style={{
@@ -485,7 +485,7 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                             Total Pago
                         </div>
                         <div style={{ fontSize: '22px', fontWeight: 'bold', color: COLORS.success, lineHeight: 1 }}>
-                            R$ {sale.totalPago.toFixed(2)}
+                            {formatCurrency(sale.totalPago)}
                         </div>
                     </div>
                     <div style={{
@@ -498,7 +498,7 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
                             Total Pendente
                         </div>
                         <div style={{ fontSize: '22px', fontWeight: 'bold', color: COLORS.danger, lineHeight: 1 }}>
-                            R$ {sale.totalPendente.toFixed(2)}
+                            {formatCurrency(sale.totalPendente)}
                         </div>
                     </div>
                 </div>

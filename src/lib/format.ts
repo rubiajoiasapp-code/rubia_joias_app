@@ -17,13 +17,13 @@ const hojeBR = () => new Date().toLocaleDateString('pt-BR');
 const EVENTO_PAGAMENTO = /^(Abatimento de R\$|Quitação manual de R\$|Estorno de R\$)/;
 
 export const registroAbatimento = (valor: number) =>
-    `Abatimento de R$ ${valor.toFixed(2)} em ${hojeBR()}`;
+    `Abatimento de ${formatCurrency(valor)} em ${hojeBR()}`;
 
 export const registroQuitacao = (valor: number) =>
-    `Quitação manual de R$ ${valor.toFixed(2)} em ${hojeBR()}`;
+    `Quitação manual de ${formatCurrency(valor)} em ${hojeBR()}`;
 
 export const registroEstorno = (valor: number) =>
-    `Estorno de R$ ${valor.toFixed(2)} — parcela reaberta em ${hojeBR()}`;
+    `Estorno de ${formatCurrency(valor)} — parcela reaberta em ${hojeBR()}`;
 
 /** Acrescenta uma linha ao histórico da parcela, preservando o que já estava lá. */
 export function anexarObservacao(atual: string | null, linha: string): string {

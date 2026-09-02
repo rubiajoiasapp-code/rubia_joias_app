@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Search, ShoppingBag, Package, X, MessageCircle, Sparkles } from 'lucide-react';
+import { formatCurrency } from '../lib/format';
 
 interface Product {
     id: string;
@@ -187,7 +188,7 @@ const Catalog: React.FC = () => {
                                     )}
                                     <div className="flex items-center justify-between">
                                         <span className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">
-                                            R$ {product.valor_venda.toFixed(2)}
+                                            {formatCurrency(product.valor_venda)}
                                         </span>
                                     </div>
                                     <button
@@ -246,7 +247,7 @@ const Catalog: React.FC = () => {
                                     <p className="text-gray-500 mb-4">{selectedProduct.categoria}</p>
                                 )}
                                 <div className="text-4xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent mb-6">
-                                    R$ {selectedProduct.valor_venda.toFixed(2)}
+                                    {formatCurrency(selectedProduct.valor_venda)}
                                 </div>
 
                                 {selectedProduct.quantidade_estoque <= 3 && (

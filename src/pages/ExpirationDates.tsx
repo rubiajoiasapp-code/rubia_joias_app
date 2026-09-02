@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { Calendar, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { format, parseISO, isSameMonth, startOfMonth, isBefore, isToday, differenceInCalendarDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { todayLocalISO, ultimaObservacao } from '../lib/format';
+import { todayLocalISO, ultimaObservacao, formatCurrency } from '../lib/format';
 import { notify } from '../lib/notify';
 
 interface Installment {
@@ -214,7 +214,7 @@ const ExpirationDates: React.FC = () => {
                             <div className="p-4 bg-gray-50 rounded-lg">
                                 <div className="text-sm text-gray-500 mb-1">Total a Receber</div>
                                 <div className="text-2xl font-bold text-gray-800">
-                                    R$ {totalDue.toFixed(2)}
+                                    {formatCurrency(totalDue)}
                                 </div>
                             </div>
 
@@ -222,13 +222,13 @@ const ExpirationDates: React.FC = () => {
                                 <div className="p-4 bg-green-50 rounded-lg">
                                     <div className="text-sm text-green-600 mb-1">Recebido</div>
                                     <div className="text-xl font-bold text-green-700">
-                                        R$ {totalPaid.toFixed(2)}
+                                        {formatCurrency(totalPaid)}
                                     </div>
                                 </div>
                                 <div className="p-4 bg-red-50 rounded-lg">
                                     <div className="text-sm text-red-600 mb-1">Pendente</div>
                                     <div className="text-xl font-bold text-red-700">
-                                        R$ {totalPending.toFixed(2)}
+                                        {formatCurrency(totalPending)}
                                     </div>
                                 </div>
                             </div>
@@ -296,11 +296,11 @@ const ExpirationDates: React.FC = () => {
                                                         FALTA — é o que a dona vai cobrar. O valor cheio fica
                                                         embaixo, para ela não perder a referência da parcela. */}
                                                     <div className="font-bold text-gray-800 text-lg">
-                                                        R$ {(item.pago ? Number(item.valor_parcela) : Number(item.saldo_devedor ?? item.valor_parcela)).toFixed(2)}
+                                                        {formatCurrency((item.pago ? Number(item.valor_parcela) : Number(item.saldo_devedor ?? item.valor_parcela)))}
                                                     </div>
                                                     {!item.pago && Number(item.valor_pago) > 0 && (
                                                         <div className="text-xs text-amber-700 font-medium">
-                                                            de R$ {Number(item.valor_parcela).toFixed(2)} · pago R$ {Number(item.valor_pago).toFixed(2)}
+                                                            de {formatCurrency(Number(item.valor_parcela))} · pago {formatCurrency(Number(item.valor_pago))}
                                                         </div>
                                                     )}
                                                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}>

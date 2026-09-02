@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Pencil, Trash2, UserPlus, X, Edit3, Search, Info, ChevronDown, ChevronUp } from 'lucide-react';
-import { normalizeCpf, normalizePhone, isValidCpf, formatCpf, formatPhone } from '../lib/format';
+import { normalizeCpf, normalizePhone, isValidCpf, formatCpf, formatPhone, formatCurrency } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import type { ClientTier } from '../lib/clientTier';
 import { TIER_INFO, fetchClientTierMap } from '../lib/clientTier';
@@ -450,7 +450,7 @@ const Clients: React.FC = () => {
                                         const tooltip =
                                             `Score: ${breakdown.total}/100 — ${band.label}\n` +
                                             `\n` +
-                                            `💰 Monetário: ${breakdown.monetario}/40 (R$ ${stats.totalGasto.toFixed(2)} desde a 1ª venda)\n` +
+                                            `💰 Monetário: ${breakdown.monetario}/40 (${formatCurrency(stats.totalGasto)} desde a 1ª venda)\n` +
                                             `🔁 Frequência: ${breakdown.frequencia}/30 (${stats.numVendas} venda${stats.numVendas === 1 ? '' : 's'} no total)\n` +
                                             `💳 Pontualidade: ${breakdown.pontualidade}/25 (${info.short})\n` +
                                             `📅 Recência: ${breakdown.recencia}/5 (última: ${lastPurchaseLabel})`;
