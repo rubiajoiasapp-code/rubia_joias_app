@@ -31,6 +31,21 @@ export function anexarObservacao(atual: string | null, linha: string): string {
 }
 
 /**
+ * A última coisa que aconteceu com a parcela, mais quantas vieram antes.
+ *
+ * O histórico inteiro continua gravado — é o registro de auditoria e ninguém o apaga.
+ * Mas na tela ele vira ruído: dez linhas de log empurram para baixo o que a dona
+ * precisa ver de relance. Aqui mostra-se só a última; o resto fica no banco, para
+ * quando alguém precisar investigar.
+ */
+export function ultimaObservacao(observacoes: string | null): { linha: string; anteriores: number } | null {
+    if (!observacoes) return null;
+    const linhas = observacoes.split('\n').map(l => l.trim()).filter(Boolean);
+    if (linhas.length === 0) return null;
+    return { linha: linhas[linhas.length - 1], anteriores: linhas.length - 1 };
+}
+
+/**
  * O que da `observacoes` pode ser mostrado à cliente: notas de renegociação, entrada e
  * anotações manuais da dona. Tudo que for evento de pagamento fica de fora.
  */

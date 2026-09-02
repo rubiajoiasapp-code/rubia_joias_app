@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { Calendar, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { format, parseISO, isSameMonth, startOfMonth, isBefore, isToday, differenceInCalendarDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { todayLocalISO } from '../lib/format';
+import { todayLocalISO, ultimaObservacao } from '../lib/format';
 import { notify } from '../lib/notify';
 
 interface Installment {
@@ -267,13 +267,26 @@ const ExpirationDates: React.FC = () => {
                                                     <p className="text-sm text-gray-500">
                                                         Parcela {item.numero_parcela} • Vencimento: {format(parseISO(item.data_vencimento), 'dd/MM/yyyy')}
                                                     </p>
-                                                    {item.observacoes && (
-                                                        // whitespace-pre-line: o histórico da parcela tem uma
-                                                        // linha por evento, e sem isso vira um parágrafo colado.
-                                                        <p className="text-xs text-gray-400 mt-1 italic whitespace-pre-line">
-                                                            Obs: {item.observacoes}
-                                                        </p>
-                                                    )}
+                                                    {(() => {
+                                                        // Só a última movimentação. O histórico completo fica no
+                                                        // banco e no title, para não empurrar cliente e vencimento
+                                                        // para fora da vista quando a parcela tem muitos eventos.
+                                                        const obs = ultimaObservacao(item.observacoes);
+                                                        if (!obs) return null;
+                                                        return (
+                                                            <p
+                                                                className="text-xs text-gray-400 mt-1 italic"
+                                                                title={item.observacoes ?? undefined}
+                                                            >
+                                                                Obs: {obs.linha}
+                                                                {obs.anteriores > 0 && (
+                                                                    <span className="not-italic text-gray-300">
+                                                                        {' '}(+{obs.anteriores} anterior{obs.anteriores > 1 ? 'es' : ''})
+                                                                    </span>
+                                                                )}
+                                                            </p>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
 

@@ -1121,8 +1121,11 @@ const Credit: React.FC = () => {
                                                         </div>
                                                     </div>
                                                 ) : (
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-4">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        {/* flex-wrap: o selo de pagamento parcial é comprido e,
+                                                            sem isso, espreme o valor e o vencimento. No celular
+                                                            — que é onde a dona trabalha — a linha quebrava feio. */}
+                                                        <div className="flex items-center flex-wrap gap-x-4 gap-y-1 min-w-0">
                                                             <span className="text-sm font-semibold text-gray-700">
                                                                 {installment.numero_parcela}ª parcela
                                                             </span>
@@ -1131,8 +1134,10 @@ const Credit: React.FC = () => {
                                                             </span>
                                                             {!installment.pago && Number(installment.valor_pago) > 0 && (
                                                                 <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded-full whitespace-nowrap">
+                                                                    {/* Data curta (dd/MM): o ano deixa o selo longo demais
+                                                                        e a parcela é sempre do ano corrente na prática. */}
                                                                     pago R$ {Number(installment.valor_pago).toFixed(2)}
-                                                                    {installment.data_pagamento && ` em ${formatDate(installment.data_pagamento)}`}
+                                                                    {installment.data_pagamento && ` em ${formatDate(installment.data_pagamento).slice(0, 5)}`}
                                                                     {' · '}falta R$ {Number(installment.saldo_devedor).toFixed(2)}
                                                                 </span>
                                                             )}
