@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Eye, EyeOff, Mail, Lock, User, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react';
 
 const translateAuthError = (msg?: string): string => {
     if (!msg) return 'Erro desconhecido';
     const m = msg.toLowerCase();
     if (m.includes('invalid login') || m.includes('invalid credentials')) return 'Email ou senha incorretos';
-    if (m.includes('user already registered') || m.includes('already registered')) return 'Este email já está cadastrado';
     if (m.includes('email rate limit')) return 'Muitas tentativas. Tente novamente em alguns minutos.';
     if (m.includes('password') && m.includes('short')) return 'A senha é muito curta (mínimo 6 caracteres)';
     if (m.includes('email not confirmed')) return 'Confirme seu email antes de fazer login';
@@ -15,18 +14,23 @@ const translateAuthError = (msg?: string): string => {
     return msg;
 };
 
+// Não existe cadastro nesta tela, e isso é proposital: as políticas de RLS do banco são
+// `FOR ALL TO authenticated`, ou seja, qualquer conta logada é tratada como a dona da
+// loja. Conta nova = acesso total a clientes, vendas e crediário. Usuário se cria pelo
+// painel do Supabase (Authentication > Users > Add user).
+type Modo = 'login' | 'forgot' | 'reset';
+
 const Login: React.FC = () => {
     const navigate = useNavigate();
-    const { signIn, signUp, resetPassword } = useAuth();
+    const { signIn, resetPassword } = useAuth();
 
-    const initialMode: 'login' | 'signup' | 'forgot' | 'reset' =
+    const initialMode: Modo =
         typeof window !== 'undefined' && window.location.pathname === '/reset-password'
             ? 'reset'
             : 'login';
-    const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>(initialMode);
+    const [mode, setMode] = useState<Modo>(initialMode);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [name, setName] = useState('');
     const [rememberMe, setRememberMe] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -51,14 +55,6 @@ const Login: React.FC = () => {
                 } else {
                     navigate('/');
                 }
-            } else if (mode === 'signup') {
-                const { error } = await signUp(email, password, name);
-                if (error) {
-                    setMessage('Erro ao criar conta: ' + translateAuthError(error.message));
-                } else {
-                    setMessage('✅ Conta criada! Verifique seu email.');
-                    setTimeout(() => setMode('login'), 2000);
-                }
             } else if (mode === 'forgot') {
                 const { error } = await resetPassword(email);
                 if (error) {
@@ -71,48 +67,56 @@ const Login: React.FC = () => {
                 // processa automaticamente. Aqui só confirmamos que o fluxo existe.
                 setMessage('Acesse o link enviado para seu email para redefinir a senha.');
             }
-        } catch (error: any) {
-            setMessage('Erro: ' + translateAuthError(error.message));
+        } catch (error: unknown) {
+            setMessage('Erro: ' + translateAuthError(error instanceof Error ? error.message : undefined));
         } finally {
             setLoading(false);
         }
     };
 
+    const titulo = {
+        login: 'Bem-vinda',
+        forgot: 'Recuperar Senha',
+        reset: 'Redefinir Senha',
+    }[mode];
+
+    const subtitulo = {
+        login: 'Acesse sua conta',
+        forgot: 'Enviaremos um link de recuperação',
+        reset: 'Escolha uma nova senha de acesso',
+    }[mode];
+
     return (
         <div className="min-h-screen bg-black flex items-center justify-center p-4 relative overflow-hidden">
-            {/* Decorative elements */}
-            <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-yellow-600/20 to-transparent rounded-full blur-3xl"></div>
-            <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tl from-yellow-600/20 to-transparent rounded-full blur-3xl"></div>
+            {/* Brilho decorativo — dourado escuro, para não competir com o logotipo */}
+            <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-ouro-700/20 to-transparent rounded-full blur-3xl"></div>
+            <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-gradient-to-tl from-ouro-800/20 to-transparent rounded-full blur-3xl"></div>
 
-            <div className="w-full max-w-md relative z-10">
-                {/* Logo */}
+            <div className="w-full max-w-md relative z-10 py-8">
+                {/* Logotipo. object-contain é obrigatório: sem ele, o contêiner quadrado
+                    achata qualquer arte que não seja exatamente 1:1. */}
                 <div className="text-center mb-8 animate-fade-in">
                     <img
                         src="/logo.png"
-                        alt="Rúbia Joias"
-                        className="w-48 h-48 mx-auto mb-4 drop-shadow-2xl"
+                        alt="Rúbia Jóias & Acessórios"
+                        className="w-56 h-56 sm:w-64 sm:h-64 object-contain mx-auto drop-shadow-2xl"
                     />
                 </div>
 
                 {/* Card */}
-                <div className="bg-gradient-to-b from-gray-900 to-black border border-yellow-600/30 rounded-2xl shadow-2xl p-8 backdrop-blur-sm">
-                    {/* Title */}
-                    <h2 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent">
-                        {mode === 'login' && 'Bem-vindo'}
-                        {mode === 'signup' && 'Criar Conta'}
-                        {mode === 'forgot' && 'Recuperar Senha'}
+                <div className="bg-gradient-to-b from-neutral-900 to-black border border-ouro-800/50 rounded-2xl shadow-2xl shadow-black/60 p-8">
+                    <h2 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-ouro-300 to-ouro-500 bg-clip-text text-transparent">
+                        {titulo}
                     </h2>
-                    <p className="text-gray-400 text-center mb-8 text-sm">
-                        {mode === 'login' && 'Acesse sua conta'}
-                        {mode === 'signup' && 'Cadastre-se para continuar'}
-                        {mode === 'forgot' && 'Enviaremos um link de recuperação'}
+                    <p className="text-neutral-400 text-center mb-8 text-sm">
+                        {subtitulo}
                     </p>
 
                     {/* Message */}
                     {message && (
                         <div className={`mb-4 p-3 rounded-lg text-sm ${message.includes('✅')
-                            ? 'bg-green-500/10 border border-green-500/30 text-green-400'
-                            : 'bg-red-500/10 border border-red-500/30 text-red-400'
+                            ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                            : 'bg-red-500/10 border border-red-500/30 text-red-300'
                             }`}>
                             {message}
                         </div>
@@ -120,33 +124,17 @@ const Login: React.FC = () => {
 
                     {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        {mode === 'signup' && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Nome Completo</label>
-                                <div className="relative">
-                                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
-                                    <input
-                                        type="text"
-                                        value={name}
-                                        onChange={(e) => setName(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-600 focus:ring-2 focus:ring-yellow-600/20 transition-all"
-                                        placeholder="Seu nome"
-                                        required
-                                    />
-                                </div>
-                            </div>
-                        )}
-
                         <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">Email</label>
+                            <label className="block text-sm font-medium text-neutral-300 mb-2">Email</label>
                             <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
+                                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-neutral-500 w-5 h-5" />
                                 <input
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-600 focus:ring-2 focus:ring-yellow-600/20 transition-all"
+                                    className="w-full pl-10 pr-4 py-3 bg-neutral-900/70 border border-neutral-800 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-ouro-600 focus:ring-2 focus:ring-ouro-600/25 transition-all"
                                     placeholder="seu@email.com"
+                                    autoComplete="email"
                                     required
                                 />
                             </div>
@@ -154,21 +142,23 @@ const Login: React.FC = () => {
 
                         {mode !== 'forgot' && (
                             <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Senha</label>
+                                <label className="block text-sm font-medium text-neutral-300 mb-2">Senha</label>
                                 <div className="relative">
-                                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
+                                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-neutral-500 w-5 h-5" />
                                     <input
                                         type={showPassword ? 'text' : 'password'}
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
-                                        className="w-full pl-10 pr-12 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-600 focus:ring-2 focus:ring-yellow-600/20 transition-all"
+                                        className="w-full pl-10 pr-12 py-3 bg-neutral-900/70 border border-neutral-800 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-ouro-600 focus:ring-2 focus:ring-ouro-600/25 transition-all"
                                         placeholder="••••••••"
+                                        autoComplete="current-password"
                                         required
                                     />
                                     <button
                                         type="button"
                                         onClick={() => setShowPassword(!showPassword)}
-                                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
+                                        aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
                                     >
                                         {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                                     </button>
@@ -183,14 +173,14 @@ const Login: React.FC = () => {
                                         type="checkbox"
                                         checked={rememberMe}
                                         onChange={(e) => setRememberMe(e.target.checked)}
-                                        className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-yellow-600 focus:ring-yellow-600 focus:ring-offset-0"
+                                        className="w-4 h-4 rounded border-neutral-700 bg-neutral-900 text-ouro-600 focus:ring-ouro-600 focus:ring-offset-0"
                                     />
-                                    <span className="ml-2 text-gray-400">Lembrar-me</span>
+                                    <span className="ml-2 text-neutral-400">Lembrar-me</span>
                                 </label>
                                 <button
                                     type="button"
                                     onClick={() => setMode('forgot')}
-                                    className="text-yellow-600 hover:text-yellow-500 transition-colors"
+                                    className="text-ouro-400 hover:text-ouro-300 transition-colors"
                                 >
                                     Esqueci minha senha
                                 </button>
@@ -200,52 +190,36 @@ const Login: React.FC = () => {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-black font-bold py-3 px-4 rounded-lg transition-all duration-300 flex items-center justify-center group disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-yellow-600/20"
+                            className="w-full bg-gradient-to-r from-ouro-600 to-ouro-400 hover:from-ouro-500 hover:to-ouro-300 text-black font-bold py-3 px-4 rounded-lg transition-all duration-300 flex items-center justify-center group disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-ouro-900/40"
                         >
                             {loading ? (
                                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-black"></div>
                             ) : (
                                 <>
                                     {mode === 'login' && 'Entrar'}
-                                    {mode === 'signup' && 'Criar Conta'}
                                     {mode === 'forgot' && 'Enviar Link'}
+                                    {mode === 'reset' && 'Continuar'}
                                     <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
                                 </>
                             )}
                         </button>
-
                     </form>
 
-                    {/* Footer Links */}
-                    <div className="mt-6 text-center">
-                        {mode === 'login' && (
-                            <p className="text-gray-400 text-sm">
-                                Não tem uma conta?{' '}
-                                <button
-                                    onClick={() => setMode('signup')}
-                                    className="text-yellow-600 hover:text-yellow-500 font-medium transition-colors"
-                                >
-                                    Cadastre-se
-                                </button>
-                            </p>
-                        )}
-                        {(mode === 'signup' || mode === 'forgot') && (
-                            <p className="text-gray-400 text-sm">
-                                Já tem uma conta?{' '}
-                                <button
-                                    onClick={() => setMode('login')}
-                                    className="text-yellow-600 hover:text-yellow-500 font-medium transition-colors"
-                                >
-                                    Fazer login
-                                </button>
-                            </p>
-                        )}
-                    </div>
+                    {mode !== 'login' && (
+                        <div className="mt-6 text-center">
+                            <button
+                                onClick={() => setMode('login')}
+                                className="text-ouro-400 hover:text-ouro-300 text-sm font-medium transition-colors"
+                            >
+                                Voltar para o login
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}
-                <p className="text-center text-gray-600 text-xs mt-8">
-                    © 2024 Rúbia Joias & Acessórios. Todos os direitos reservados.
+                <p className="text-center text-neutral-600 text-xs mt-8">
+                    © {new Date().getFullYear()} Rúbia Jóias &amp; Acessórios. Todos os direitos reservados.
                 </p>
             </div>
         </div>

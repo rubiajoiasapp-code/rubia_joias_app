@@ -124,10 +124,13 @@ const SaleReceipt: React.FC<SaleReceiptProps> = ({ sale }) => {
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        {/* Símbolo, não o logotipo inteiro: a 64px o "Rúbia" manuscrito e o
+                            "JÓIAS & ACESSÓRIOS" do lockup viram borrão — e o nome já vem
+                            escrito ao lado. Placa preta porque a arte é dourada. */}
                         <img
-                            src="/logo.png"
-                            alt="Rubia Joias"
-                            style={{ height: '64px', backgroundColor: '#ffffff', borderRadius: '8px', padding: '4px' }}
+                            src="/logo-simbolo.png"
+                            alt="Rúbia Jóias"
+                            style={{ height: '64px', width: '64px', objectFit: 'contain', backgroundColor: '#000000', borderRadius: '8px', padding: '4px' }}
                         />
                         <div>
                             <div style={{ fontSize: '22px', fontWeight: 'bold', letterSpacing: '0.5px', lineHeight: 1 }}>
