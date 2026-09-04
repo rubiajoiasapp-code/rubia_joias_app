@@ -13,6 +13,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 There is no test runner configured in this project.
 
+**CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs lint and build on every push and pull request. Lint runs with `--max-warnings 45`, a ratchet: `@typescript-eslint/no-explicit-any` is deliberately a warning rather than an error (~42 inherited occurrences, reasoning in [eslint.config.js](eslint.config.js)), and the cap stops the count from growing. Lower the number as the debt is paid; never raise it. CI catches type errors, lint regressions and broken builds — it cannot catch logic or layout bugs, which still need a real look at the screen.
+
 **Backups are manual and they are the only safety net.** The Supabase free plan takes no backups at all, so the crediário exists in exactly one place until someone runs `npm run backup`. The script aborts rather than writing a partial file: it compares each table against the row count the server reports, refuses a key that is not `service_role` (with RLS on, a lesser key returns fewer rows and no error), and refuses a `service_role` key belonging to a different project. `backups/` is gitignored — the files carry client CPF and phone numbers.
 
 Requires env vars `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (see [src/lib/supabase.ts](src/lib/supabase.ts)) — the client throws at import time if either is missing, so `npm run dev` will fail fast without a `.env`.

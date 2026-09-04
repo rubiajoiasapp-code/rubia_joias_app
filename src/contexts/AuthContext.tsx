@@ -18,29 +18,34 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // em localStorage é ignorada para não vazar um login fake.
 const DEMO_ENABLED = import.meta.env.DEV;
 
+/** Usuário sintético do modo demo, ou null. Em produção apaga a flag antiga. */
+function usuarioDemo(): User | null {
+    if (!DEMO_ENABLED) {
+        localStorage.removeItem('demoMode');
+        return null;
+    }
+    if (localStorage.getItem('demoMode') !== 'true') return null;
+    return {
+        id: 'demo-user',
+        email: 'demo@rubiajoias.com',
+        app_metadata: {},
+        user_metadata: { name: 'Usuário Demo' },
+        aud: 'authenticated',
+        created_at: new Date().toISOString()
+    } as User;
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true);
+    // Inicializador preguiçoso em vez de setState dentro do efeito: se há modo demo, isso
+    // já se sabe antes da primeira renderização, então não faz sentido renderizar uma vez
+    // sem usuário e corrigir logo depois — era disso que o react-hooks reclamava.
+    const [demo] = useState(usuarioDemo);
+    const [user, setUser] = useState<User | null>(demo);
+    const [loading, setLoading] = useState(demo === null);
 
     useEffect(() => {
-        // Check for demo mode (só em DEV)
-        const isDemo = DEMO_ENABLED && localStorage.getItem('demoMode') === 'true';
-        if (!DEMO_ENABLED) {
-            // Em produção, limpa qualquer flag antiga.
-            localStorage.removeItem('demoMode');
-        }
-        if (isDemo) {
-            setUser({
-                id: 'demo-user',
-                email: 'demo@rubiajoias.com',
-                app_metadata: {},
-                user_metadata: { name: 'Usuário Demo' },
-                aud: 'authenticated',
-                created_at: new Date().toISOString()
-            } as User);
-            setLoading(false);
-            return;
-        }
+        // Sessão do Supabase não se aplica ao usuário fake do modo demo.
+        if (demo) return;
 
         // Check active session
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -56,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         return () => subscription.unsubscribe();
-    }, []);
+    }, [demo]);
 
     const signIn = async (email: string, password: string, rememberMe: boolean) => {
         const { error } = await supabase.auth.signInWithPassword({

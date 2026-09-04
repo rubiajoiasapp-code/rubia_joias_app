@@ -1,0 +1,51 @@
+# Confere todo push antes que ele vire deploy.
+#
+# Push em main dispara deploy de produção na Vercel — no aplicativo que a dona da loja
+# usa todo dia. Até aqui, a única coisa que impedia código quebrado de chegar lá era
+# alguém lembrar de rodar os comandos na mão.
+#
+# O que este robô pega: erro de tipo, erro de lint, e build que não compila.
+# O que ele NÃO pega: bug de lógica e problema de layout. Para isso é preciso teste
+# automatizado (ainda não existe) e conferência por imagem.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Push novo na mesma branch cancela a execução anterior, que já não interessa.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Vite 7 exige Node 20.19+ ou 22.12+.
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` e não `npm install`: instala exatamente o que está no package-lock,
+      # sem atualizar nada por conta própria. O CI tem que testar as mesmas versões
+      # que rodam na sua máquina, não as mais novas do dia.
+      - name: Instalar dependências
+        run: npm ci
+
+      # --max-warnings 45 é uma catraca. Hoje há 45 avisos, quase todos `any` herdado
+      # (ver o comentário em eslint.config.js). Este número impede que o total cresça:
+      # `any` novo quebra o CI. Quando o time baixar a dívida, baixe o número junto —
+      # ele só anda para trás.
+      - name: Lint
+        run: npm run lint -- --max-warnings 45
+
+      # `npm run build` já roda `tsc -b` antes do Vite, então cobre tipagem e compilação.
+      - name: Build
+        run: npm run build

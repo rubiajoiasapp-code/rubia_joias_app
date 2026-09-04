@@ -15,7 +15,9 @@ export interface ConfirmOptions {
     tone?: ConfirmTone;
 }
 
-export interface DialogState extends ConfirmOptions {}
+// Alias, não interface vazia: `interface X extends Y {}` é exatamente Y, e o ESLint
+// avisa porque a forma sugere que campos foram esquecidos ali.
+export type DialogState = ConfirmOptions;
 
 let dialogResolver: ((value: boolean) => void) | null = null;
 const listeners = new Set<(state: DialogState | null) => void>();
