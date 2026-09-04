@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { mensagemDeErro, codigoDeErro } from '../lib/erro';
 import { Pencil, Trash2, Package as PackageIcon, Printer, Upload, Plus, X, Search, CheckSquare, Eye, EyeOff } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
@@ -215,10 +216,10 @@ const Inventory: React.FC = () => {
             console.log('🔗 URL pública gerada:', data.publicUrl);
 
             return data.publicUrl;
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('❌ Error uploading image:', error);
 
-            if (error.message?.includes('not found')) {
+            if (mensagemDeErro(error).includes('not found')) {
                 throw new Error('BUCKET_NOT_FOUND');
             }
 
@@ -367,11 +368,11 @@ const Inventory: React.FC = () => {
                         console.warn('⚠️ Upload retornou null');
                         imageUploadFailed = true;
                     }
-                } catch (uploadError: any) {
+                } catch (uploadError: unknown) {
                     console.error('❌ Erro no upload da imagem:', uploadError);
                     imageUploadFailed = true;
 
-                    if (uploadError.message === 'BUCKET_NOT_FOUND') {
+                    if (mensagemDeErro(uploadError) === 'BUCKET_NOT_FOUND') {
                         notify.warning('Bucket de imagens não configurado', { description: 'Configure no Supabase Storage para habilitar uploads.' });
                     }
                 }
@@ -418,9 +419,9 @@ const Inventory: React.FC = () => {
             cancelEditing(); // Resets form and state
             cacheInvalidate('inventory_products');
             fetchProducts();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error saving product:', error);
-            notify.error('Erro ao salvar produto', { description: error.message });
+            notify.error('Erro ao salvar produto', { description: mensagemDeErro(error) });
         } finally {
             setUploading(false);
         }
@@ -449,12 +450,12 @@ const Inventory: React.FC = () => {
             await removerImagemAntiga(imagemDoProduto, null);
             cacheInvalidate('inventory_products');
             fetchProducts();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error deleting product:', error);
-            if (error.code === '23503') {
+            if (codigoDeErro(error) === '23503') {
                 notify.error('Não é possível excluir este produto', { description: 'Ele já possui vendas registradas. Produtos vendidos não podem ser apagados para manter o histórico.' });
             } else {
-                notify.error('Erro ao excluir produto', { description: error.message || 'Erro desconhecido' });
+                notify.error('Erro ao excluir produto', { description: mensagemDeErro(error) });
             }
         }
     };
@@ -612,9 +613,9 @@ const Inventory: React.FC = () => {
             setSelectedProds(new Set()); // Clear selection
             cacheInvalidate('inventory_products');
             fetchProducts();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error updating catalog status:', error);
-            notify.error('Erro ao atualizar catálogo', { description: error.message });
+            notify.error('Erro ao atualizar catálogo', { description: mensagemDeErro(error) });
         } finally {
             setProcessingBulk(false);
         }

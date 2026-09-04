@@ -39,12 +39,13 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
-      # --max-warnings 45 é uma catraca. Hoje há 45 avisos, quase todos `any` herdado
-      # (ver o comentário em eslint.config.js). Este número impede que o total cresça:
-      # `any` novo quebra o CI. Quando o time baixar a dívida, baixe o número junto —
-      # ele só anda para trás.
+      # Catraca: o número só anda para trás. Começou em 45 (a dívida de `any` herdada),
+      # está em 3 desde que ela foi paga. Os 3 que sobram são react-hooks/exhaustive-deps
+      # no padrão "busca ao montar" — corrigi-los exige useCallback e muda QUANDO o efeito
+      # dispara, com risco de laço infinito; não é troca mecânica e fica para quando
+      # houver teste cobrindo essas telas.
       - name: Lint
-        run: npm run lint -- --max-warnings 45
+        run: npm run lint -- --max-warnings 3
 
       # Cobre a lógica pura de src/lib: dinheiro, datas, classificação de cliente e
       # cache. Não cobre tela nem banco — para isso ainda é preciso olhar o app.

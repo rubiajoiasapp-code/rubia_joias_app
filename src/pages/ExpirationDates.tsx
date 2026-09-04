@@ -63,7 +63,10 @@ const ExpirationDates: React.FC = () => {
 
             if (error) throw error;
 
-            const fetchedData = (data || []) as any[]; // Cast to handle nested types if needed
+            // `as unknown` no meio porque o PostgREST tipa relacionamento embutido como
+            // array, e aqui `venda` chega como objeto único: a conversão direta é
+            // rejeitada pelo TypeScript, com razão.
+            const fetchedData = (data || []) as unknown as Installment[];
             setInstallments(fetchedData);
 
             // Extract unique months from data

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { mensagemDeErro } from '../lib/erro';
 import {
     DollarSign,
     TrendingUp,
@@ -111,6 +112,54 @@ interface DashboardMetrics {
     clientesTotal: number;
     novosMes: number;
     clientesAtivos: number;
+}
+
+/**
+ * Linhas cruas que o Dashboard lê do banco.
+ *
+ * Relacionamento embutido (`cliente:clientes(...)`) chega ora como objeto, ora como
+ * array de um elemento, dependendo de como o PostgREST resolve a junção — os dois
+ * formatos entram no tipo e o código normaliza na leitura. Números vêm como string em
+ * colunas DECIMAL, daí o `number | string`: é o motivo de todo `Number(...)` no caminho.
+ *
+ * Há dois tipos de venda porque há duas consultas com colunas diferentes: o ranking não
+ * pede `data_venda`, a carga mensal pede. Um tipo só, com tudo opcional, obrigaria a
+ * checar em tempo de execução um campo que a consulta garante.
+ */
+interface ClienteEmbutido {
+    id?: string;
+    nome: string;
+}
+
+/** vendas do ranking: id, valor_total, cliente_id, cliente(id, nome) */
+interface LinhaVendaRanking {
+    id: string;
+    valor_total: number | string;
+    cliente_id: string | null;
+    cliente?: ClienteEmbutido | ClienteEmbutido[] | null;
+}
+
+/** vendas da carga mensal: acrescenta data_venda e forma_pagamento */
+interface LinhaVendaMensal extends LinhaVendaRanking {
+    data_venda: string;
+    forma_pagamento: string | null;
+}
+
+interface ProdutoEmbutido {
+    id: string;
+    descricao: string;
+    categoria: string | null;
+    valor_custo: number | string | null;
+    image_url: string | null;
+}
+
+interface LinhaItemDashboard {
+    venda_id: string;
+    produto_id?: string;
+    quantidade: number | string;
+    valor_unitario: number | string;
+    venda?: { data_venda: string } | { data_venda: string }[] | null;
+    produto?: ProdutoEmbutido | ProdutoEmbutido[] | null;
 }
 
 interface VendaRecente {
@@ -285,8 +334,8 @@ const Dashboard: React.FC = () => {
                 if (vendasRes.error) throw vendasRes.error;
                 if (itensRes.error) throw itensRes.error;
 
-                const vendas = (vendasRes.data || []) as any[];
-                const itens = (itensRes.data || []) as any[];
+                const vendas = ((vendasRes.data || []) as unknown) as LinhaVendaRanking[];
+                const itens = ((itensRes.data || []) as unknown) as LinhaItemDashboard[];
 
                 // Top clientes
                 const clientesMap = new Map<string, { id: string; nome: string; total: number; compras: number }>();
@@ -447,8 +496,8 @@ const Dashboard: React.FC = () => {
             if (parcelasVendaRes.error) throw parcelasVendaRes.error;
             if (parcelasPagarRes.error) throw parcelasPagarRes.error;
 
-            const vendas = (vendasJanelaRes.data || []) as any[];
-            const itens = (itensVendaRes.data || []) as any[];
+            const vendas = ((vendasJanelaRes.data || []) as unknown) as LinhaVendaMensal[];
+            const itens = ((itensVendaRes.data || []) as unknown) as LinhaItemDashboard[];
             const parcelasVenda = parcelasVendaRes.data || [];
             const parcelasPagar = parcelasPagarRes.data || [];
             const produtosBaixoEstoque = (produtosBaixoEstoqueRes.data || []) as ProdutoBaixoEstoque[];
@@ -687,9 +736,9 @@ const Dashboard: React.FC = () => {
             if (!mountedRef.current) return;
             setMetrics(next);
             cacheSet('dashboard_metrics_v2', next);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error fetching dashboard data:', error);
-            if (mountedRef.current) setErrorMsg('Não foi possível carregar os dados. ' + (error?.message || ''));
+            if (mountedRef.current) setErrorMsg('Não foi possível carregar os dados. ' + mensagemDeErro(error, ''));
         } finally {
             if (mountedRef.current) setLoading(false);
         }
@@ -1270,10 +1319,36 @@ const Heatmap: React.FC<{ data: number[][]; max: number }> = ({ data, max }) => 
 
 // ============ TOOLTIPS ============
 
-const ReceitaLucroTooltip: React.FC<any> = ({ active, payload, label }) => {
+// Tipos locais e mínimos, em vez dos genéricos do Recharts: descrevem só os campos que
+// estes dois tooltips realmente leem. Os genéricos da biblioteca mudam entre versões e
+// arrastam junto uma árvore de tipos que não acrescenta segurança nenhuma aqui.
+interface ItemTooltip {
+    dataKey?: string | number;
+    value?: number | string;
+}
+
+interface PropsTooltipReceita {
+    active?: boolean;
+    label?: string | number;
+    payload?: ItemTooltip[];
+}
+
+/** Uma fatia do gráfico de mix de pagamento. */
+interface FatiaMix {
+    metodo: string;
+    valor: number;
+    quantidade: number;
+}
+
+interface PropsTooltipMix {
+    active?: boolean;
+    payload?: Array<{ payload: FatiaMix }>;
+}
+
+const ReceitaLucroTooltip: React.FC<PropsTooltipReceita> = ({ active, payload, label }) => {
     if (!active || !payload || payload.length === 0) return null;
-    const receita = payload.find((p: any) => p.dataKey === 'receita')?.value || 0;
-    const lucro = payload.find((p: any) => p.dataKey === 'lucro')?.value || 0;
+    const receita = Number(payload.find(p => p.dataKey === 'receita')?.value ?? 0);
+    const lucro = Number(payload.find(p => p.dataKey === 'lucro')?.value ?? 0);
     const margem = receita > 0 ? (lucro / receita) * 100 : 0;
     return (
         <div className="bg-white shadow-xl rounded-lg p-3 border border-gray-100">
@@ -1298,7 +1373,7 @@ const ReceitaLucroTooltip: React.FC<any> = ({ active, payload, label }) => {
     );
 };
 
-const MixTooltip: React.FC<any> = ({ active, payload }) => {
+const MixTooltip: React.FC<PropsTooltipMix> = ({ active, payload }) => {
     if (!active || !payload || payload.length === 0) return null;
     const entry = payload[0].payload;
     return (

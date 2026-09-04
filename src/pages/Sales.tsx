@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { mensagemDeErro } from '../lib/erro';
 import { ShoppingCart, Search, QrCode, Package as PackageIcon, Trash2, CreditCard, Camera, X, ArrowDown } from 'lucide-react';
-import { Scanner } from '@yudiel/react-qr-scanner';
+import { Scanner, type IDetectedBarcode } from '@yudiel/react-qr-scanner';
 import { nowLocalISO, todayLocalISO, splitInstallments, roundMoney, formatCurrency } from '../lib/format';
 import type { ClientTier } from '../lib/clientTier';
 import { TIER_INFO, fetchClientTierMap } from '../lib/clientTier';
@@ -156,7 +157,7 @@ const Sales: React.FC = () => {
         }
     };
 
-    const handleScan = (result: any) => {
+    const handleScan = (result: IDetectedBarcode[]) => {
         if (result && result[0]?.rawValue) {
             const code = String(result[0].rawValue).trim();
             const product = products.find(p => (p.codigo || '').trim() === code);
@@ -172,7 +173,7 @@ const Sales: React.FC = () => {
         }
     };
 
-    const handleScanError = (error: any) => {
+    const handleScanError = (error: unknown) => {
         console.error('QR Scanner error:', error);
     };
 
@@ -373,9 +374,9 @@ const Sales: React.FC = () => {
             setDownPayment(0);
             setDiscount(0);
             fetchProducts();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error finalizing sale:', error);
-            notify.error('Erro ao finalizar venda', { description: error?.message || 'erro desconhecido' });
+            notify.error('Erro ao finalizar venda', { description: mensagemDeErro(error) });
         } finally {
             processingRef.current = false;
             if (mountedRef.current) setProcessing(false);

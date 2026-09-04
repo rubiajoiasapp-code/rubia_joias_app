@@ -26,6 +26,17 @@ interface Installment {
     }
 }
 
+interface LinhaParcelaCrua {
+    id: string
+    venda_id: string
+    numero_parcela: number
+    valor_parcela: number | string
+    saldo_devedor: number | string
+    data_vencimento: string
+    pago: boolean
+    venda: Installment['venda'] | Installment['venda'][] | null
+}
+
 interface NotificationConfig {
     whatsapp_numero: string
     callmebot_api_key: string
@@ -129,7 +140,9 @@ serve(async (req) => {
         data3Dias.setDate(data3Dias.getDate() + 3)
         const data3DiasStr = data3Dias.toISOString().split('T')[0]
 
-        parcelas.forEach((parcela: any) => {
+        // Linha crua do PostgREST: relacionamento embutido chega como objeto ou
+        // array, e e por isso que ela e remontada em Installment logo abaixo.
+        parcelas.forEach((parcela: LinhaParcelaCrua) => {
             const parcelaCompleta: Installment = {
                 id: parcela.id,
                 venda_id: parcela.venda_id,
@@ -187,7 +200,7 @@ serve(async (req) => {
         }
 
         // Calcular total
-        const totalReceber = parcelas.reduce((sum: number, p: any) => sum + Number(p.saldo_devedor), 0)
+        const totalReceber = parcelas.reduce((sum: number, p: Installment) => sum + Number(p.saldo_devedor), 0)
         mensagem += `💰 *Total a receber:* R$ ${totalReceber.toFixed(2)}\n\n`
         mensagem += `---\n_Enviado automaticamente pelo sistema Rubia Joias_`
 

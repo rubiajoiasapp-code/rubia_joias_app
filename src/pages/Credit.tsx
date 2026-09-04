@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { mensagemDeErro } from '../lib/erro';
 import { Calendar, DollarSign, User, Check, X, Edit2, ChevronDown, ChevronUp, AlertCircle, Trash2, Download, MessageCircle, RefreshCw, Loader2, Search, Banknote } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { toBlob } from 'html-to-image';
@@ -56,6 +57,22 @@ interface SaleWithInstallments extends Sale {
     itens: SaleItem[];
     totalPago: number;
     totalPendente: number;
+}
+
+/**
+ * Linha crua de `itens_venda` como o PostgREST devolve.
+ *
+ * `produto` chega ora como objeto, ora como array de um elemento, dependendo de como o
+ * PostgREST resolve o relacionamento — por isso o tipo aceita os dois e o código
+ * normaliza logo na leitura.
+ */
+interface LinhaItemVenda {
+    id: string;
+    venda_id: string;
+    quantidade: number | string;
+    valor_unitario: number | string;
+    subtotal: number | string | null;
+    produto: SaleItem['produto'] | SaleItem['produto'][];
 }
 
 interface AplicacaoPagamento {
@@ -192,14 +209,14 @@ const Credit: React.FC = () => {
 
             // Indexa parcelas e itens por venda_id
             const parcelasByVenda = new Map<string, Installment[]>();
-            (parcelasRes.data || []).forEach((p: any) => {
+            (parcelasRes.data || []).forEach((p: Installment) => {
                 const arr = parcelasByVenda.get(p.venda_id) || [];
                 arr.push(p);
                 parcelasByVenda.set(p.venda_id, arr);
             });
 
             const itensByVenda = new Map<string, SaleItem[]>();
-            (itensRes.data || []).forEach((raw: any) => {
+            (itensRes.data || []).forEach((raw: LinhaItemVenda) => {
                 const arr = itensByVenda.get(raw.venda_id) || [];
                 arr.push({
                     id: raw.id,
@@ -211,7 +228,7 @@ const Credit: React.FC = () => {
                 itensByVenda.set(raw.venda_id, arr);
             });
 
-            const salesWithInstallments: SaleWithInstallments[] = salesData.map((sale: any) => {
+            const salesWithInstallments: SaleWithInstallments[] = salesData.map((sale: Sale) => {
                 const parcelas = (parcelasByVenda.get(sale.id) || []).sort(
                     (a, b) => a.numero_parcela - b.numero_parcela
                 );
@@ -281,9 +298,9 @@ const Credit: React.FC = () => {
             closeEditing();
             cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Erro ao atualizar parcela:', error);
-            notify.error('Erro ao atualizar parcela', { description: error.message });
+            notify.error('Erro ao atualizar parcela', { description: mensagemDeErro(error) });
         }
     };
 
@@ -315,9 +332,9 @@ const Credit: React.FC = () => {
 
             cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Erro ao atualizar pagamento:', error);
-            notify.error('Erro ao atualizar pagamento', { description: error.message });
+            notify.error('Erro ao atualizar pagamento', { description: mensagemDeErro(error) });
         }
     };
 
@@ -445,9 +462,9 @@ const Credit: React.FC = () => {
             notify.success('Venda excluída com sucesso!');
             cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Erro ao excluir venda:', error);
-            notify.error('Erro ao excluir venda', { description: error.message });
+            notify.error('Erro ao excluir venda', { description: mensagemDeErro(error) });
         }
     };
 
@@ -545,9 +562,9 @@ const Credit: React.FC = () => {
             triggerPngDownload(blob, `resumo_venda_${clientName}_${date}.png`);
 
             notify.success('Resumo baixado com sucesso!');
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Erro ao gerar resumo:', error);
-            notify.error('Erro ao gerar resumo', { description: error?.message || 'tente novamente' });
+            notify.error('Erro ao gerar resumo', { description: mensagemDeErro(error, 'tente novamente') });
         } finally {
             notify.dismiss(tid);
             busyRef.current = false;
@@ -819,9 +836,9 @@ const Credit: React.FC = () => {
             closeRenegotiation();
             cacheInvalidate('credit_sales');
             fetchSalesWithInstallments();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Erro ao renegociar venda:', error);
-            notify.error('Erro ao renegociar venda', { description: error.message });
+            notify.error('Erro ao renegociar venda', { description: mensagemDeErro(error) });
         }
     };
 

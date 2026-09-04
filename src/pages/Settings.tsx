@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { mensagemDeErro } from '../lib/erro';
 import { Settings as SettingsIcon, Bell, Clock, Calendar, MessageSquare, Save, Send, AlertCircle } from 'lucide-react';
 
 interface NotificationSettings {
@@ -108,9 +109,9 @@ const Settings: React.FC = () => {
 
             showMessage('success', 'Configurações salvas com sucesso!');
             fetchSettings();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error saving settings:', error);
-            showMessage('error', 'Erro ao salvar configurações: ' + (error?.message || 'erro desconhecido'));
+            showMessage('error', 'Erro ao salvar configurações: ' + mensagemDeErro(error));
         } finally {
             setSaving(false);
         }
@@ -134,9 +135,9 @@ const Settings: React.FC = () => {
             }
 
             showMessage('success', 'Mensagem de teste enviada! Verifique seu WhatsApp.');
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error sending test:', error);
-            showMessage('error', 'Erro ao enviar mensagem de teste: ' + error.message);
+            showMessage('error', 'Erro ao enviar mensagem de teste: ' + mensagemDeErro(error));
         } finally {
             setTesting(false);
         }

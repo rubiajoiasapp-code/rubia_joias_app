@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { mensagemDeErro } from '../lib/erro';
 import { format, parseISO } from 'date-fns';
 import { splitInstallments, roundMoney, formatCurrency } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
@@ -153,7 +154,7 @@ const Financial: React.FC = () => {
         setProductItems(productItems.filter(item => item.tempId !== tempId));
     };
 
-    const updateProductItem = (tempId: number, field: keyof ProductItem, value: any) => {
+    const updateProductItem = <K extends keyof ProductItem>(tempId: number, field: K, value: ProductItem[K]) => {
         setProductItems(productItems.map(item =>
             item.tempId === tempId ? { ...item, [field]: value } : item
         ));
@@ -321,9 +322,9 @@ const Financial: React.FC = () => {
             cacheInvalidate('financial_expenses');
             cacheInvalidate('inventory_products');
             fetchExpenses();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error creating expense:', error);
-            notify.error('Erro ao cadastrar despesa', { description: error?.message || 'erro desconhecido' });
+            notify.error('Erro ao cadastrar despesa', { description: mensagemDeErro(error) });
         } finally {
             submittingRef.current = false;
             if (mountedRef.current) setSubmitting(false);
@@ -367,9 +368,9 @@ const Financial: React.FC = () => {
             notify.success('Despesa excluída com sucesso!');
             cacheInvalidate('financial_expenses');
             fetchExpenses();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error deleting expense:', error);
-            notify.error('Erro ao excluir despesa', { description: error.message });
+            notify.error('Erro ao excluir despesa', { description: mensagemDeErro(error) });
         }
     };
 
@@ -413,9 +414,9 @@ const Financial: React.FC = () => {
             if (expandedExpense) {
                 fetchInstallments(expandedExpense);
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error updating installment:', error);
-            notify.error('Erro ao atualizar parcela', { description: error.message });
+            notify.error('Erro ao atualizar parcela', { description: mensagemDeErro(error) });
         }
     };
 

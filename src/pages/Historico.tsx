@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { mensagemDeErro } from '../lib/erro';
 import {
     Search,
     Filter,
@@ -63,6 +64,29 @@ interface Sale {
     cliente: { id: string; nome: string } | null;
     itens: SaleItem[];
     parcelas: Parcela[];
+}
+
+/**
+ * Linha crua de `vendas` com itens, parcelas e cliente embutidos.
+ *
+ * Relacionamento embutido chega ora como objeto, ora como array de um elemento,
+ * dependendo de como o PostgREST resolve a junção — por isso os dois formatos entram no
+ * tipo e o `normalized` abaixo achata tudo antes de qualquer tela tocar no dado.
+ */
+interface LinhaVendaCrua {
+    id: string;
+    data_venda: string;
+    valor_total: number | string;
+    forma_pagamento: string;
+    cliente_id: string;
+    cliente: Sale['cliente'] | Sale['cliente'][];
+    itens?: Array<{
+        id: string;
+        quantidade: number | string;
+        valor_unitario: number | string;
+        produto: SaleItem['produto'] | SaleItem['produto'][];
+    }>;
+    parcelas?: Array<{ pago: boolean; data_vencimento: string }>;
 }
 
 type StatusPagamento = 'QUITADA' | 'ATRASADA' | 'PENDENTE' | 'SEM_PARCELAS';
@@ -199,7 +223,9 @@ const Historico: React.FC = () => {
 
         if (!needClientes && !needProdutos) return;
 
-        const tasks: Promise<any>[] = [];
+        // As duas consultas devolvem formatos diferentes; o que importa aqui é só a
+        // ordem em que voltam, e cada resultado é lido no seu próprio ramo abaixo.
+        const tasks: Promise<{ data: unknown; error: unknown }>[] = [];
         if (needClientes) {
             tasks.push(
                 Promise.resolve(supabase.from('clientes').select('id, nome').order('nome'))
@@ -303,20 +329,20 @@ const Historico: React.FC = () => {
             const { data, error } = await query;
             if (error) throw error;
 
-            const normalized: Sale[] = ((data || []) as any[]).map((raw) => ({
+            const normalized: Sale[] = ((data || []) as unknown as LinhaVendaCrua[]).map((raw) => ({
                 id: raw.id,
                 data_venda: raw.data_venda,
                 valor_total: Number(raw.valor_total) || 0,
                 forma_pagamento: raw.forma_pagamento,
                 cliente_id: raw.cliente_id,
                 cliente: Array.isArray(raw.cliente) ? raw.cliente[0] || null : raw.cliente,
-                itens: (raw.itens || []).map((item: any) => ({
+                itens: (raw.itens || []).map((item) => ({
                     id: item.id,
                     quantidade: Number(item.quantidade) || 0,
                     valor_unitario: Number(item.valor_unitario) || 0,
                     produto: Array.isArray(item.produto) ? item.produto[0] || null : item.produto
                 })),
-                parcelas: (raw.parcelas || []).map((p: any) => ({
+                parcelas: (raw.parcelas || []).map((p) => ({
                     pago: !!p.pago,
                     data_vencimento: p.data_vencimento
                 }))
@@ -339,9 +365,9 @@ const Historico: React.FC = () => {
 
             if (!mountedRef.current) return;
             setSales(filtered);
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Error fetching sales:', err);
-            notify.error('Erro ao buscar histórico', { description: err?.message || 'tente novamente' });
+            notify.error('Erro ao buscar histórico', { description: mensagemDeErro(err, 'tente novamente') });
         } finally {
             if (mountedRef.current) setLoading(false);
         }
