@@ -37,7 +37,9 @@ There is no custom API server. All persistence, auth, and business logic goes th
 
 Core domain tables (see [schema.sql](schema.sql)): `clientes`, `fornecedores`, `produtos`, `vendas` + `itens_venda`, `contas_pagar` + `parcelas_pagar`. A `parcelas_venda` table exists via migration for crediário (installment sales). A `gerar_parcelas` PL/pgSQL function generates monthly installments for purchase orders.
 
-There is one Supabase Edge Function at [supabase/functions/send-whatsapp-reminder/](supabase/functions/send-whatsapp-reminder/) for WhatsApp reminders — see [SETUP_WHATSAPP_REMINDERS.md](SETUP_WHATSAPP_REMINDERS.md) for deployment.
+Two Supabase Edge Functions live in [supabase/functions/](supabase/functions/): `send-whatsapp-reminder` (see [SETUP_WHATSAPP_REMINDERS.md](SETUP_WHATSAPP_REMINDERS.md)) and `assistente`, the natural-language query assistant behind `/assistente` (see [SETUP_ASSISTENTE.md](SETUP_ASSISTENTE.md)).
+
+**The Edge Function is the only server-side code in this project**, so it is the only place an API key can live — anything `VITE_` is compiled into the public bundle. Two rules hold in `assistente` and should hold in anything added beside it: it runs queries with the *caller's* JWT rather than `service_role`, so it can never do more than the logged-in user could; and every `select` lists its columns explicitly, never returning `cpf`, `telefone` or `endereco`. That column list is the privacy boundary — a `select('*')` there would leak client data to the model provider, which on Gemini's free tier may use it for training.
 
 ### Routing and auth
 

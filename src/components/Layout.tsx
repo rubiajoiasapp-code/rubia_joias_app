@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingCart, DollarSign, Package, Users, CreditCard, LogOut, Menu, X, Settings, CalendarClock, History } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, DollarSign, Package, Users, CreditCard, LogOut, Menu, X, Settings, CalendarClock, History, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 // Menu na ordem em que o trabalho acontece, não em ordem alfabética nem de cadastro:
@@ -13,6 +13,9 @@ const navGroups = [
         titulo: null,
         itens: [
             { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+            // Logo abaixo do Dashboard: é atalho para o que está nas outras telas, então
+            // vive perto da visão geral, não no fim da lista.
+            { path: '/assistente', label: 'Assistente', icon: Sparkles },
         ],
     },
     {
