@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "icones": "node scripts/gerar-icones.mjs",
     "backup": "node scripts/backup.mjs",
+    "deploy:funcao": "node scripts/deploy-funcao.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

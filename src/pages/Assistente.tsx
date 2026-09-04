@@ -50,7 +50,17 @@ const Assistente: React.FC = () => {
                 body: { pergunta: limpo },
             });
 
-            if (error) throw error;
+            if (error) {
+                // `invoke` transforma qualquer resposta fora da faixa 2xx num
+                // FunctionsHttpError com a mensagem genérica "non-2xx status code", e
+                // guarda a resposta de verdade em `.context`. Sem abrir esse corpo, o
+                // motivo real do erro nunca chega à tela — nem para quem for depurar.
+                const resposta = (error as { context?: Response }).context;
+                const corpo = resposta && typeof resposta.json === 'function'
+                    ? await resposta.json().catch(() => null)
+                    : null;
+                throw new Error(corpo?.erro ? String(corpo.erro) : mensagemDeErro(error));
+            }
             if (data?.erro) throw new Error(data.erro);
 
             setMensagens(m => [...m, { de: 'assistente', texto: String(data?.resposta ?? '') }]);

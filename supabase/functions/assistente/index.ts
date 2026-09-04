@@ -32,10 +32,19 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Flash-Lite: o mais barato da familia e sobra para consulta com ferramenta pronta.
-// A conta e feita pelas ferramentas; o modelo so escolhe qual chamar e redige a resposta.
-const MODELO = 'gemini-3.5-flash-lite'
+// Fila de modelos, do mais barato para o mais robusto.
+//
+// Flash-Lite basta: a conta e feita pelas ferramentas, o modelo so escolhe qual chamar e
+// redige a resposta. Mas modelo popular no plano gratuito vive sobrecarregado — a
+// primeira tentativa real deste codigo morreu exatamente assim, com "high demand". Se um
+// nao atende, cai para o proximo em vez de devolver erro para a dona da loja.
+const MODELOS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions'
+
+/** Sobrecarga passageira: vale tentar outro modelo. Cota estourada: nao vale. */
+function ehSobrecarga(status: number, mensagem: string): boolean {
+    return status === 503 || status === 500 || /high demand|overload|unavailable/i.test(mensagem)
+}
 
 // Teto de rodadas de ferramenta. Sem isso, um modelo confuso pode ficar chamando
 // ferramenta em circulo e queimar cota — no gratuito sao ~15 requisicoes por minuto.
@@ -127,6 +136,34 @@ const FERRAMENTAS = [
 
 type Args = Record<string, unknown>
 
+/** Quantas linhas de detalhe o modelo recebe. Nao afeta soma nem contagem. */
+const MAX_DETALHE = 40
+
+/**
+ * Le TODAS as linhas que casam com a consulta, paginando.
+ *
+ * O PostgREST devolve no maximo 1000 linhas por requisicao e nao avisa quando corta.
+ * Somar so a primeira pagina, num assistente sobre dinheiro, produz a pior especie de
+ * erro: a resposta parece completa e esta menor que a verdade. A primeira versao desta
+ * funcao tinha um `.limit(100)` e escondeu R$ 4.281,95 de 137 parcelas a vencer — por
+ * isso soma e contagem SEMPRE saem daqui, e o limite vale so para a lista de detalhe.
+ */
+async function lerTudo<T>(
+    montar: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+    const PAGINA = 1000
+    const linhas: T[] = []
+
+    for (let de = 0; ; de += PAGINA) {
+        const { data, error } = await montar(de, de + PAGINA - 1)
+        if (error) throw new Error(error.message)
+        if (!data?.length) break
+        linhas.push(...data)
+        if (data.length < PAGINA) break
+    }
+    return linhas
+}
+
 /**
  * Executa a ferramenta pedida.
  *
@@ -160,16 +197,17 @@ async function executar(nome: string, args: Args, db: SupabaseClient): Promise<u
             const ids = (vendas ?? []).map((v) => v.id)
             if (!ids.length) return { cliente: cliente.nome, deve: 0, parcelas: [] }
 
-            const { data: parcelas, error: e3 } = await db
-                .from('parcelas_venda')
-                .select('numero_parcela, valor_parcela, valor_pago, saldo_devedor, data_vencimento')
-                .in('venda_id', ids)
-                .eq('pago', false)
-                .order('data_vencimento')
-            if (e3) return { erro: e3.message }
+            const abertas = await lerTudo((de, ate) =>
+                db
+                    .from('parcelas_venda')
+                    .select('numero_parcela, valor_parcela, valor_pago, saldo_devedor, data_vencimento')
+                    .in('venda_id', ids)
+                    .eq('pago', false)
+                    .order('data_vencimento')
+                    .range(de, ate),
+            )
 
             const hoje = hojeBR()
-            const abertas = parcelas ?? []
             return {
                 cliente: cliente.nome,
                 // saldo_devedor, nao valor_parcela: com pagamento parcial, somar o valor
@@ -193,14 +231,17 @@ async function executar(nome: string, args: Args, db: SupabaseClient): Promise<u
                 return { erro: 'datas devem estar em AAAA-MM-DD' }
             }
 
-            const { data, error } = await db
-                .from('vendas')
-                .select('valor_total, forma_pagamento')
-                .gte('data_venda', inicio)
-                .lte('data_venda', `${fim}T23:59:59`)
-            if (error) return { erro: error.message }
-
-            const vendas = data ?? []
+            // lerTudo, e nao uma consulta so: sem limite explicito o PostgREST ainda para
+            // em 1000 linhas. Hoje a loja tem ~300 vendas, entao nao aparece; no dia em
+            // que passar de mil, "quanto vendi neste ano" viria menor e ninguem notaria.
+            const vendas = await lerTudo((de, ate) =>
+                db
+                    .from('vendas')
+                    .select('valor_total, forma_pagamento')
+                    .gte('data_venda', inicio)
+                    .lte('data_venda', `${fim}T23:59:59`)
+                    .range(de, ate),
+            )
             const total = vendas.reduce((s, v) => s + Number(v.valor_total), 0)
             const porForma: Record<string, number> = {}
             for (const v of vendas) {
@@ -222,16 +263,17 @@ async function executar(nome: string, args: Args, db: SupabaseClient): Promise<u
             const hoje = hojeBR()
             const limite = somaDias(hoje, Number.isFinite(dias) ? dias : 7)
 
-            const { data, error } = await db
-                .from('parcelas_venda')
-                .select('numero_parcela, saldo_devedor, data_vencimento, venda:vendas(cliente:clientes(nome))')
-                .eq('pago', false)
-                .lte('data_vencimento', limite)
-                .order('data_vencimento')
-                .limit(100)
-            if (error) return { erro: error.message }
+            const data = await lerTudo((de, ate) =>
+                db
+                    .from('parcelas_venda')
+                    .select('numero_parcela, saldo_devedor, data_vencimento, venda:vendas(cliente:clientes(nome))')
+                    .eq('pago', false)
+                    .lte('data_vencimento', limite)
+                    .order('data_vencimento')
+                    .range(de, ate),
+            )
 
-            const linhas = (data ?? []).map((p) => {
+            const linhas = data.map((p) => {
                 // Relacionamento embutido chega ora como objeto, ora como array de um.
                 const venda = Array.isArray(p.venda) ? p.venda[0] : p.venda
                 const cli = venda && (Array.isArray(venda.cliente) ? venda.cliente[0] : venda.cliente)
@@ -244,26 +286,43 @@ async function executar(nome: string, args: Args, db: SupabaseClient): Promise<u
                 }
             })
 
+            // Soma e contagem vem da lista INTEIRA; so o detalhe e recortado, e o corte
+            // e declarado para o modelo nao apresentar uma amostra como se fosse tudo.
             return {
                 hoje,
                 ate: limite,
                 quantidade: linhas.length,
                 total: linhas.reduce((s, l) => s + l.falta, 0),
                 atrasadas: linhas.filter((l) => l.atrasada).length,
-                parcelas: linhas,
+                parcelas: linhas.slice(0, MAX_DETALHE),
+                detalhe_truncado: linhas.length > MAX_DETALHE,
+                observacao:
+                    linhas.length > MAX_DETALHE
+                        ? `A lista mostra so as ${MAX_DETALHE} primeiras de ${linhas.length}. A quantidade e o total acima ja consideram TODAS.`
+                        : undefined,
             }
         }
 
         case 'estoque_baixo': {
             const limite = Number(args.limite ?? 3)
-            const { data, error } = await db
-                .from('produtos')
-                .select('descricao, categoria, quantidade_estoque')
-                .lte('quantidade_estoque', Number.isFinite(limite) ? limite : 3)
-                .order('quantidade_estoque')
-                .limit(50)
-            if (error) return { erro: error.message }
-            return { limite, quantidade: data?.length ?? 0, produtos: data ?? [] }
+            const produtos = await lerTudo((de, ate) =>
+                db
+                    .from('produtos')
+                    .select('descricao, categoria, quantidade_estoque')
+                    .lte('quantidade_estoque', Number.isFinite(limite) ? limite : 3)
+                    .order('quantidade_estoque')
+                    .range(de, ate),
+            )
+            return {
+                limite,
+                quantidade: produtos.length,
+                produtos: produtos.slice(0, MAX_DETALHE),
+                detalhe_truncado: produtos.length > MAX_DETALHE,
+                observacao:
+                    produtos.length > MAX_DETALHE
+                        ? `A lista mostra so os ${MAX_DETALHE} primeiros de ${produtos.length}. A quantidade acima ja considera TODOS.`
+                        : undefined,
+            }
         }
 
         default:
@@ -280,6 +339,8 @@ interface PassoGemini {
     id?: string
     name?: string
     arguments?: Args
+    text?: string
+    content?: unknown
 }
 
 interface RespostaGemini {
@@ -288,20 +349,94 @@ interface RespostaGemini {
     error?: { message?: string }
 }
 
-async function chamarGemini(chave: string, corpo: Record<string, unknown>): Promise<RespostaGemini> {
-    const r = await fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: { 'x-goog-api-key': chave, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODELO, system_instruction: INSTRUCAO, tools: FERRAMENTAS, ...corpo }),
-    })
+/**
+ * Texto final da resposta.
+ *
+ * `output_text` e descrito na documentacao como um helper que junta os blocos de texto —
+ * linguagem de SDK, e no REST ele nem sempre vem. Por isso, se faltar, o texto e
+ * garimpado dentro de `steps`, que e onde os blocos moram de fato. Cada formato abaixo
+ * foi encontrado na pratica ou esta previsto na documentacao; tolerar todos custa pouco e
+ * evita que a dona da loja veja "nao consegui responder" por causa do nome de um campo.
+ */
+function extrairTexto(r: RespostaGemini): string {
+    if (typeof r.output_text === 'string' && r.output_text.trim()) return r.output_text.trim()
 
-    const json = await r.json().catch(() => ({}))
-    if (!r.ok) {
-        // 429 e o caso comum no gratuito: 5-15 requisicoes por minuto.
-        const detalhe = json?.error?.message ?? `HTTP ${r.status}`
-        throw new Error(r.status === 429 ? `Muitas perguntas seguidas. Espere um minuto. (${detalhe})` : detalhe)
+    const pedacos: string[] = []
+
+    const colher = (valor: unknown): void => {
+        if (typeof valor === 'string') {
+            if (valor.trim()) pedacos.push(valor.trim())
+            return
+        }
+        if (Array.isArray(valor)) {
+            valor.forEach(colher)
+            return
+        }
+        if (valor && typeof valor === 'object') {
+            const obj = valor as { text?: unknown; content?: unknown }
+            if (typeof obj.text === 'string') colher(obj.text)
+            else if (obj.content !== undefined) colher(obj.content)
+        }
     }
-    return json as RespostaGemini
+
+    for (const passo of r.steps ?? []) {
+        // Chamada de ferramenta nao e resposta ao usuario.
+        if (passo.type === 'function_call' || passo.type === 'function_result') continue
+        if (passo.text !== undefined) colher(passo.text)
+        else if (passo.content !== undefined) colher(passo.content)
+    }
+
+    return pedacos.join('\n').trim()
+}
+
+interface ResultadoGemini {
+    resposta: RespostaGemini
+    modelo: string
+}
+
+/**
+ * Chama o Gemini, descendo a fila de modelos se o preferido estiver sobrecarregado.
+ *
+ * `modeloPreferido` e o que ja respondeu antes nesta mesma pergunta: trocar de modelo no
+ * meio de uma sequencia de ferramentas funciona, mas nao ha motivo para trocar.
+ */
+async function chamarGemini(
+    chave: string,
+    corpo: Record<string, unknown>,
+    modeloPreferido?: string,
+): Promise<ResultadoGemini> {
+    const fila = modeloPreferido
+        ? [modeloPreferido, ...MODELOS.filter((m) => m !== modeloPreferido)]
+        : MODELOS
+
+    let ultimoErro = 'nenhum modelo respondeu'
+
+    for (const modelo of fila) {
+        const r = await fetch(GEMINI_URL, {
+            method: 'POST',
+            headers: { 'x-goog-api-key': chave, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: modelo, system_instruction: INSTRUCAO, tools: FERRAMENTAS, ...corpo }),
+        })
+
+        const json = await r.json().catch(() => ({}))
+        if (r.ok) return { resposta: json as RespostaGemini, modelo }
+
+        const detalhe = json?.error?.message ?? `HTTP ${r.status}`
+        ultimoErro = detalhe
+
+        // 429 e cota estourada, nao sobrecarga: no gratuito sao 5-15 requisicoes por
+        // minuto. Tentar outro modelo nao ajuda e ainda gasta o que sobrou da cota.
+        if (r.status === 429) {
+            throw new Error('Muitas perguntas seguidas. Espere um minuto e pergunte de novo.')
+        }
+        if (!ehSobrecarga(r.status, detalhe)) throw new Error(detalhe)
+
+        console.log(`assistente: ${modelo} indisponivel (${detalhe}); tentando o proximo`)
+    }
+
+    throw new Error(
+        `Os modelos do Gemini estao ocupados agora. Tente de novo em alguns minutos. (${ultimoErro})`,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +482,9 @@ serve(async (req) => {
         ]
 
         const ferramentasUsadas: string[] = []
-        let resposta = await chamarGemini(chave, { store: false, input: entrada })
+        const primeira = await chamarGemini(chave, { store: false, input: entrada })
+        let resposta = primeira.resposta
+        const modeloAtivo = primeira.modelo
 
         for (let rodada = 0; rodada < MAX_RODADAS; rodada++) {
             const chamadas = (resposta.steps ?? []).filter((p) => p.type === 'function_call')
@@ -367,13 +504,25 @@ serve(async (req) => {
             )
 
             entrada.push(...(resposta.steps ?? []), ...resultados)
-            resposta = await chamarGemini(chave, { store: false, input: entrada })
+            resposta = (await chamarGemini(chave, { store: false, input: entrada }, modeloAtivo)).resposta
         }
 
-        const texto = resposta.output_text?.trim()
-        if (!texto) return responder({ erro: 'O assistente nao conseguiu formular a resposta.' }, 502)
+        const texto = extrairTexto(resposta)
+        if (!texto) {
+            // Sem isto, "nao consegui responder" e um beco sem saida: o formato da
+            // resposta e a unica coisa que explica a falha, e ele so aparece aqui.
+            console.error(
+                'assistente: resposta sem texto. Tipos de passo:',
+                JSON.stringify((resposta.steps ?? []).map((p) => p.type)),
+                '| chaves:',
+                JSON.stringify(Object.keys(resposta)),
+                '| bruto:',
+                JSON.stringify(resposta).slice(0, 1500),
+            )
+            return responder({ erro: 'O assistente nao conseguiu formular a resposta.' }, 502)
+        }
 
-        return responder({ resposta: texto, ferramentas: ferramentasUsadas })
+        return responder({ resposta: texto, ferramentas: ferramentasUsadas, modelo: modeloAtivo })
     } catch (e) {
         const mensagem = e instanceof Error ? e.message : 'erro desconhecido'
         console.error('assistente:', mensagem)
