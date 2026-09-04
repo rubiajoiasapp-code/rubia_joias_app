@@ -90,6 +90,20 @@ const REDEMPTION_WINDOW = 3;
  */
 const ALIVIO_POR_PAGAMENTO_PARCIAL = 0.7;
 
+/**
+ * Interpreta 'AAAA-MM-DD' como meia-noite LOCAL.
+ *
+ * `new Date('2026-09-04')` não faz isso: o padrão manda tratar data sem hora como UTC,
+ * que em Brasília (UTC-3) é 21h do dia 3. O resultado era um dia inteiro de erro — a
+ * parcela que vencia hoje entrava como um dia em atraso, e 30 dias de atraso já
+ * disparava o CRITICO reservado para "mais de 30". O resto do sistema compara essas
+ * datas como texto ISO, que não tem esse problema; só a classificação divergia.
+ */
+function dataLocal(iso: string): Date {
+    const [ano, mes, dia] = iso.slice(0, 10).split('-').map(Number);
+    return new Date(ano, mes - 1, dia);
+}
+
 export function classifyClient(parcelas: ParcelaForTier[]): ClientTier {
     if (!parcelas || parcelas.length === 0) return 'NOVO';
 
@@ -97,16 +111,11 @@ export function classifyClient(parcelas: ParcelaForTier[]): ClientTier {
     today.setHours(0, 0, 0, 0);
 
     const openParcelas = parcelas.filter(p => !p.pago);
-    const openOverdue = openParcelas.filter(p => {
-        const due = new Date(p.data_vencimento);
-        due.setHours(0, 0, 0, 0);
-        return due < today;
-    });
+    const openOverdue = openParcelas.filter(p => dataLocal(p.data_vencimento) < today);
 
     if (openOverdue.length > 0) {
         const maxDaysLate = openOverdue.reduce((max, p) => {
-            const due = new Date(p.data_vencimento);
-            due.setHours(0, 0, 0, 0);
+            const due = dataLocal(p.data_vencimento);
             const days = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
             return days > max ? days : max;
         }, 0);
@@ -126,13 +135,8 @@ export function classifyClient(parcelas: ParcelaForTier[]): ClientTier {
 
     const paidParcelas = parcelas.filter(p => p.pago && p.data_pagamento);
 
-    const wasLate = (p: ParcelaForTier): boolean => {
-        const paid = new Date(p.data_pagamento as string);
-        const due = new Date(p.data_vencimento);
-        paid.setHours(0, 0, 0, 0);
-        due.setHours(0, 0, 0, 0);
-        return paid > due;
-    };
+    const wasLate = (p: ParcelaForTier): boolean =>
+        dataLocal(p.data_pagamento as string) > dataLocal(p.data_vencimento);
 
     const everLate = paidParcelas.some(wasLate);
     if (!everLate) return 'EXCELENTE';
@@ -143,8 +147,8 @@ export function classifyClient(parcelas: ParcelaForTier[]): ClientTier {
     const recentPaid = [...paidParcelas]
         .sort(
             (a, b) =>
-                new Date(b.data_pagamento as string).getTime() -
-                new Date(a.data_pagamento as string).getTime(),
+                dataLocal(b.data_pagamento as string).getTime() -
+                dataLocal(a.data_pagamento as string).getTime(),
         )
         .slice(0, REDEMPTION_WINDOW);
 

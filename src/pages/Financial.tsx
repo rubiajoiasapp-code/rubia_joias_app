@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { format, parseISO } from 'date-fns';
 import { splitInstallments, roundMoney, formatCurrency } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import { notify } from '../lib/notify';
@@ -702,7 +703,10 @@ const Financial: React.FC = () => {
                                                     ) : (
                                                         /* View Mode */
                                                         <>
-                                                            <td className="p-2">{new Date(installment.data_vencimento).toLocaleDateString()}</td>
+                                                            {/* parseISO e não new Date(): data sem hora é lida como UTC pelo
+                                                                construtor, e em Brasília isso mostrava sempre o dia anterior.
+                                                                Mesmo idioma usado na tela de Vencimentos. */}
+                                                            <td className="p-2">{format(parseISO(installment.data_vencimento), 'dd/MM/yyyy')}</td>
                                                             <td className="p-2">{formatCurrency(installment.valor_parcela)}</td>
                                                             <td className="p-2">
                                                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${installment.pago ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>

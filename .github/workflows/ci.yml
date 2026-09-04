@@ -46,6 +46,11 @@ jobs:
       - name: Lint
         run: npm run lint -- --max-warnings 45
 
+      # Cobre a lógica pura de src/lib: dinheiro, datas, classificação de cliente e
+      # cache. Não cobre tela nem banco — para isso ainda é preciso olhar o app.
+      - name: Testes
+        run: npm test
+
       # `npm run build` já roda `tsc -b` antes do Vite, então cobre tipagem e compilação.
       - name: Build
         run: npm run build

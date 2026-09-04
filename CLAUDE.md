@@ -8,12 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` — type-check (`tsc -b`) then Vite production build
 - `npm run lint` — ESLint over the repo
 - `npm run preview` — preview the production build
+- `npm test` — Vitest over the pure logic in `src/lib` (`npm run test:watch` while developing)
 - `npm run backup` — export every table to `backups/` (needs `SUPABASE_SERVICE_ROLE_KEY`)
 - `npm run icones` — regenerate favicons and logos in `public/` from the art in `brand/`
 
-There is no test runner configured in this project.
+**Tests cover `src/lib` only** — money formatting and installment splitting, client tier and score, the in-memory cache. Those are pure functions, so they need no database and no DOM; [vitest.config.ts](vitest.config.ts) injects dummy Supabase env vars because `clientTier`/`clientScore` import the client module, which throws on import without them. Pages are untested: they mix Supabase calls, modals and layout, and testing them would need a much heavier setup. Anything involving a date deserves a test — see below.
 
-**CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs lint and build on every push and pull request. Lint runs with `--max-warnings 45`, a ratchet: `@typescript-eslint/no-explicit-any` is deliberately a warning rather than an error (~42 inherited occurrences, reasoning in [eslint.config.js](eslint.config.js)), and the cap stops the count from growing. Lower the number as the debt is paid; never raise it. CI catches type errors, lint regressions and broken builds — it cannot catch logic or layout bugs, which still need a real look at the screen.
+**Dates: never `new Date('2026-09-04')` on a `DATE` column.** The standard parses a date-only string as UTC, which in Brasília is 21:00 the day before. This shipped as a real bug in two places: client classification treated an installment due *today* as one day late (and 30 days late as `CRITICO`, which is reserved for *more* than 30), and the Financeiro screen displayed every supplier due date one day early. Compare these values as ISO strings (`data_vencimento < todayLocalISO()`, as `Credit.tsx` and `Historico.tsx` do), or parse with `parseISO` from date-fns / the local `dataLocal` helper in `clientTier.ts`. Full timestamps (`created_at`, `data_venda`) are unaffected.
+
+**CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs lint, tests and build on every push and pull request. Lint runs with `--max-warnings 45`, a ratchet: `@typescript-eslint/no-explicit-any` is deliberately a warning rather than an error (~42 inherited occurrences, reasoning in [eslint.config.js](eslint.config.js)), and the cap stops the count from growing. Lower the number as the debt is paid; never raise it. CI catches type errors, lint regressions and broken builds — it cannot catch logic or layout bugs, which still need a real look at the screen.
 
 **Backups are manual and they are the only safety net.** The Supabase free plan takes no backups at all, so the crediário exists in exactly one place until someone runs `npm run backup`. The script aborts rather than writing a partial file: it compares each table against the row count the server reports, refuses a key that is not `service_role` (with RLS on, a lesser key returns fewer rows and no error), and refuses a `service_role` key belonging to a different project. `backups/` is gitignored — the files carry client CPF and phone numbers.
 
