@@ -16,50 +16,102 @@ import { dirname, join } from 'node:path';
 export const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const BUCKET = 'product-images';
 
-function lerEnv() {
+function lerArquivoEnv(nome) {
     const env = {};
     try {
-        for (const linha of readFileSync(join(RAIZ, '.env'), 'utf8').split('\n')) {
+        for (const linha of readFileSync(join(RAIZ, nome), 'utf8').split('\n')) {
             const m = linha.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
             if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
         }
     } catch {
-        // sem .env: usa as variaveis do processo
+        // arquivo ausente: segue com o que ja tem
     }
     return env;
+}
+
+function lerEnv() {
+    return lerArquivoEnv('.env');
+}
+
+/**
+ * A service_role sai daqui, e so daqui.
+ *
+ * Nao de `.env`: neste repositorio o `.env` esta VERSIONADO — uma service_role ali vai
+ * para o GitHub no proximo commit, e ela ignora RLS por definicao. `.env.local` cai no
+ * `*.local` do .gitignore.
+ *
+ * Existe tambem para nao depender de sintaxe de terminal: `VAR=valor comando` e Bash e
+ * quebra no PowerShell, que e o terminal padrao desta maquina.
+ */
+function lerChaveLocal() {
+    return lerArquivoEnv('.env.local').SUPABASE_SERVICE_ROLE_KEY;
+}
+
+/** Decodifica o payload de uma chave em formato JWT. Null para o formato sb_secret_. */
+function payload(k) {
+    const partes = k.split('.');
+    if (partes.length !== 3) return null;
+    try {
+        return JSON.parse(Buffer.from(partes[1], 'base64url').toString());
+    } catch {
+        return null;
+    }
 }
 
 /** A chave e mesmo service_role? Chave de menor privilegio le menos e nao avisa. */
 function ehServiceRole(k) {
     if (k.startsWith('sb_secret_')) return true; // formato novo de chave secreta
-    const partes = k.split('.');
-    if (partes.length !== 3) return false;
-    try {
-        return JSON.parse(Buffer.from(partes[1], 'base64url').toString()).role === 'service_role';
-    } catch {
-        return false;
-    }
+    return payload(k)?.role === 'service_role';
+}
+
+/** O ref do projeto embutido na URL: https://<ref>.supabase.co */
+function refDaUrl(url) {
+    return url.match(/^https:\/\/([a-z0-9]+)\.supabase\.co/i)?.[1] ?? null;
 }
 
 export function conectar() {
     const env = lerEnv();
     const url = process.env.VITE_SUPABASE_URL || env.VITE_SUPABASE_URL;
-    const chave = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    // .env.local ganha da variavel de ambiente: a variavel e global da maquina e pode
+    // ser de outro projeto, o arquivo e desta pasta.
+    const chave = lerChaveLocal() || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!url) {
         console.error('Faltou VITE_SUPABASE_URL (.env ou variavel de ambiente).');
         process.exit(1);
     }
     if (!chave) {
-        console.error('Faltou SUPABASE_SERVICE_ROLE_KEY.');
-        console.error('A chave anon NAO serve: o RLS esconde dela os produtos fora do catalogo,');
-        console.error('e as fotos deles seriam tratadas como lixo.');
-        console.error('Pegue a service_role no painel da Supabase: Settings > API.');
+        console.error('Faltou a SUPABASE_SERVICE_ROLE_KEY.');
+        console.error('');
+        console.error('Crie um arquivo .env.local na raiz do projeto com uma linha:');
+        console.error('  SUPABASE_SERVICE_ROLE_KEY=cole-a-chave-aqui');
+        console.error('');
+        console.error('A chave fica em Settings > API no painel da Supabase, como');
+        console.error('"service_role" ou "secret". O .env.local nao vai para o git.');
+        console.error('');
+        console.error('A chave anon NAO serve: com o RLS ligado ela le menos linhas e');
+        console.error('nao reclama — o resultado sairia incompleto sem nenhum aviso.');
         process.exit(1);
     }
     if (!ehServiceRole(chave)) {
         console.error('A chave em SUPABASE_SERVICE_ROLE_KEY nao e uma service_role.');
         console.error('Rodar com chave de menor privilegio corromperia o resultado. Abortado.');
+        process.exit(1);
+    }
+
+    // A chave pertence a ESTE projeto? Uma service_role de outro projeto na variavel de
+    // ambiente e cenario real quando se mantem mais de um sistema na mesma maquina — a
+    // variavel e global, o .env e por pasta. No melhor caso o script so falha; no pior,
+    // com a URL certa e a chave de outro banco, escreve no lugar errado com poder total.
+    const refUrl = refDaUrl(url);
+    const refChave = payload(chave)?.ref;
+    if (refUrl && refChave && refUrl !== refChave) {
+        console.error('A chave e de OUTRO projeto Supabase.');
+        console.error(`  .env aponta para o projeto : ${refUrl}`);
+        console.error(`  a chave pertence ao projeto: ${refChave}`);
+        console.error('Abortado antes de tocar em qualquer dado.');
+        console.error('Passe a chave certa na hora de rodar, em vez de deixar no ambiente:');
+        console.error('  SUPABASE_SERVICE_ROLE_KEY=<chave> npm run backup');
         process.exit(1);
     }
 

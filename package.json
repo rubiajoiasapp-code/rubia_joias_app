@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "icones": "node scripts/gerar-icones.mjs",
+    "backup": "node scripts/backup.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

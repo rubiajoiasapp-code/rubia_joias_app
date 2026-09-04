@@ -8,8 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` — type-check (`tsc -b`) then Vite production build
 - `npm run lint` — ESLint over the repo
 - `npm run preview` — preview the production build
+- `npm run backup` — export every table to `backups/` (needs `SUPABASE_SERVICE_ROLE_KEY`)
+- `npm run icones` — regenerate favicons and logos in `public/` from the art in `brand/`
 
 There is no test runner configured in this project.
+
+**Backups are manual and they are the only safety net.** The Supabase free plan takes no backups at all, so the crediário exists in exactly one place until someone runs `npm run backup`. The script aborts rather than writing a partial file: it compares each table against the row count the server reports, refuses a key that is not `service_role` (with RLS on, a lesser key returns fewer rows and no error), and refuses a `service_role` key belonging to a different project. `backups/` is gitignored — the files carry client CPF and phone numbers.
 
 Requires env vars `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (see [src/lib/supabase.ts](src/lib/supabase.ts)) — the client throws at import time if either is missing, so `npm run dev` will fail fast without a `.env`.
 

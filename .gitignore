@@ -35,3 +35,7 @@ amostras-compressao/
 
 # Estado local do Supabase CLI (project ref, credenciais de link)
 supabase/.temp/
+
+# Backups do banco: contêm CPF e telefone das clientes, e a chave do CallMeBot.
+# Guarde fora do repositório (HD externo, nuvem privada) — nunca no git.
+backups/
