@@ -622,7 +622,8 @@ const Credit: React.FC = () => {
         const fileName = `resumo_${clientName}.png`;
         // formatCurrency em vez de toFixed(2): este texto vai para a cliente, e
         // `toFixed` escreve "R$ 200.00" com ponto — em português o separador é vírgula.
-        const textoPadrao = `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de ${formatCurrency(sale.valor_total)}. — Obrigado, Deus abençoe!`;
+        // "Obrigada" no feminino: quem manda a mensagem é a dona da loja.
+        const textoPadrao = `Olá ${sale.cliente.nome}! Segue o resumo da sua compra de ${formatCurrency(sale.valor_total)}. — Obrigada, Deus abençoe!`;
 
         try {
             // ============== RAMO A: share nativo de arquivos (celular) ==============
