@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { lerTudo } from './lerTudo';
 import type { ClientTier } from './clientTier';
 
 export interface ClientStats {
@@ -141,18 +142,23 @@ export function computeScore(
 }
 
 export async function fetchClientStatsMap(): Promise<Record<string, ClientStats>> {
-    const { data, error } = await supabase
-        .from('vendas')
-        .select('cliente_id, valor_total, data_venda')
-        .not('cliente_id', 'is', null);
-
-    if (error) {
+    let data: unknown[];
+    try {
+        data = await lerTudo((de, ate) =>
+            supabase
+                .from('vendas')
+                .select('cliente_id, valor_total, data_venda', { count: 'exact' })
+                .not('cliente_id', 'is', null)
+                .order('id')
+                .range(de, ate),
+        );
+    } catch (error) {
         console.error('Error fetching client stats:', error);
         return {};
     }
 
     const byClient: Record<string, ClientStats> = {};
-    for (const row of (data || []) as Array<{
+    for (const row of data as Array<{
         cliente_id: string;
         valor_total: number | string;
         data_venda: string;

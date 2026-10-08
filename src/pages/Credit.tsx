@@ -11,6 +11,7 @@ import {
 } from '../lib/format';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import { notify } from '../lib/notify';
+import { lerTudo } from '../lib/lerTudo';
 
 interface Sale {
     id: string;
@@ -174,34 +175,41 @@ const Credit: React.FC = () => {
 
     const fetchSalesWithInstallments = async () => {
         try {
-            // 3 queries totais em paralelo (em vez de N+1 por venda).
-            // Com 150+ vendas, isso vai de 300+ requests para 3.
-            const [salesRes, parcelasRes, itensRes] = await Promise.all([
-                supabase
-                    .from('vendas')
-                    .select(`*, cliente:clientes(nome)`)
-                    .order('data_venda', { ascending: false }),
-                supabase
-                    .from('parcelas_venda')
-                    .select('*')
-                    .order('numero_parcela'),
-                supabase
-                    .from('itens_venda')
-                    .select(`
-                        id,
-                        venda_id,
-                        quantidade,
-                        valor_unitario,
-                        subtotal,
-                        produto:produtos(descricao, categoria, codigo)
-                    `)
+            // 3 leituras totais em paralelo (em vez de N+1 por venda). `lerTudo` pagina e
+            // falha se não trouxer tudo: o servidor corta em 1.000 linhas sem avisar.
+            const [salesData, parcelasData, itensData] = await Promise.all([
+                lerTudo<Sale>((de, ate) =>
+                    supabase
+                        .from('vendas')
+                        .select(`*, cliente:clientes(nome)`, { count: 'exact' })
+                        .order('data_venda', { ascending: false })
+                        .order('id')
+                        .range(de, ate),
+                ),
+                lerTudo<Installment>((de, ate) =>
+                    supabase
+                        .from('parcelas_venda')
+                        .select('*', { count: 'exact' })
+                        .order('numero_parcela')
+                        .order('id')
+                        .range(de, ate),
+                ),
+                lerTudo<LinhaItemVenda>((de, ate) =>
+                    supabase
+                        .from('itens_venda')
+                        .select(`
+                            id,
+                            venda_id,
+                            quantidade,
+                            valor_unitario,
+                            subtotal,
+                            produto:produtos(descricao, categoria, codigo)
+                        `, { count: 'exact' })
+                        .order('id')
+                        .range(de, ate),
+                ),
             ]);
 
-            if (salesRes.error) throw salesRes.error;
-            if (parcelasRes.error) throw parcelasRes.error;
-            if (itensRes.error) throw itensRes.error;
-
-            const salesData = salesRes.data || [];
             if (salesData.length === 0) {
                 if (mountedRef.current) setSales([]);
                 return;
@@ -209,14 +217,14 @@ const Credit: React.FC = () => {
 
             // Indexa parcelas e itens por venda_id
             const parcelasByVenda = new Map<string, Installment[]>();
-            (parcelasRes.data || []).forEach((p: Installment) => {
+            parcelasData.forEach((p: Installment) => {
                 const arr = parcelasByVenda.get(p.venda_id) || [];
                 arr.push(p);
                 parcelasByVenda.set(p.venda_id, arr);
             });
 
             const itensByVenda = new Map<string, SaleItem[]>();
-            (itensRes.data || []).forEach((raw: LinhaItemVenda) => {
+            itensData.forEach((raw: LinhaItemVenda) => {
                 const arr = itensByVenda.get(raw.venda_id) || [];
                 arr.push({
                     id: raw.id,

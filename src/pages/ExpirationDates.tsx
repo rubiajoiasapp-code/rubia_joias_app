@@ -5,6 +5,7 @@ import { format, parseISO, isSameMonth, startOfMonth, isBefore, isToday, differe
 import { ptBR } from 'date-fns/locale';
 import { todayLocalISO, ultimaObservacao, formatCurrency } from '../lib/format';
 import { notify } from '../lib/notify';
+import { lerTudo } from '../lib/lerTudo';
 
 interface Installment {
     id: string;
@@ -40,7 +41,8 @@ const ExpirationDates: React.FC = () => {
             // We need to fetch ALL pending or recent installments to build the timeline
             // For now, let's fetch everything that is not paid, or paid recently?
             // User query: "colocar os vencimentos em ordem cronológica"
-            const { data, error } = await supabase
+            const data = await lerTudo((de, ate) =>
+                supabase
                 .from('parcelas_venda')
                 .select(`
                     id,
@@ -58,15 +60,16 @@ const ExpirationDates: React.FC = () => {
                             nome
                         )
                     )
-                `)
-                .order('data_vencimento', { ascending: true });
-
-            if (error) throw error;
+                `, { count: 'exact' })
+                .order('data_vencimento', { ascending: true })
+                .order('id')
+                .range(de, ate),
+            );
 
             // `as unknown` no meio porque o PostgREST tipa relacionamento embutido como
             // array, e aqui `venda` chega como objeto único: a conversão direta é
             // rejeitada pelo TypeScript, com razão.
-            const fetchedData = (data || []) as unknown as Installment[];
+            const fetchedData = data as unknown as Installment[];
             setInstallments(fetchedData);
 
             // Extract unique months from data

@@ -23,6 +23,7 @@ import {
 import { todayLocalISO } from '../lib/format';
 import { cacheGet } from '../lib/cache';
 import { notify } from '../lib/notify';
+import { lerTudo } from '../lib/lerTudo';
 
 // ============ TYPES ============
 
@@ -201,7 +202,7 @@ const Historico: React.FC = () => {
 
     useEffect(() => {
         mountedRef.current = true;
-        loadDropdownData();
+        loadDropdownData().catch((e) => notify.error(`Erro ao carregar filtros: ${mensagemDeErro(e)}`));
         fetchSales(appliedFilters);
         return () => {
             mountedRef.current = false;
@@ -233,7 +234,9 @@ const Historico: React.FC = () => {
         }
         if (needProdutos) {
             tasks.push(
-                Promise.resolve(supabase.from('produtos').select('id, descricao, categoria').order('descricao'))
+                lerTudo((de, ate) =>
+                    supabase.from('produtos').select('id, descricao, categoria', { count: 'exact' }).order('descricao').order('id').range(de, ate),
+                ).then((data) => ({ data, error: null }))
             );
         }
 

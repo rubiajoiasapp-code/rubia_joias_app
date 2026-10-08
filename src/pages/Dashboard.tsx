@@ -33,6 +33,7 @@ import {
 } from 'recharts';
 import { todayLocalISO } from '../lib/format';
 import { cacheGet, cacheSet } from '../lib/cache';
+import { lerTudo } from '../lib/lerTudo';
 
 // ============ RANKING PERIOD ============
 
@@ -440,29 +441,42 @@ const Dashboard: React.FC = () => {
                 novosMesCountRes,
                 vendasRecentes30dRes
             ] = await Promise.all([
-                supabase
-                    .from('vendas')
-                    .select('id, data_venda, valor_total, forma_pagamento, cliente_id, cliente:clientes(nome)')
-                    .gte('data_venda', seisMesesAtras)
-                    .order('data_venda', { ascending: false }),
-                supabase
-                    .from('itens_venda')
-                    .select(`
-                        venda_id,
-                        produto_id,
-                        quantidade,
-                        valor_unitario,
-                        venda:vendas(data_venda),
-                        produto:produtos(id, descricao, categoria, valor_custo, image_url)
-                    `)
-                    .gte('venda.data_venda', primeiroDiaMesAnterior)
-                    .limit(10000),
-                supabase
-                    .from('parcelas_venda')
-                    // saldo_devedor precisa vir no select: com pagamento parcial, somar
-                    // valor_parcela cobraria de novo o que a cliente já pagou.
-                    .select('valor_parcela, saldo_devedor, data_vencimento, pago')
-                    .eq('pago', false),
+                lerTudo((de, ate) =>
+                    supabase
+                        .from('vendas')
+                        .select('id, data_venda, valor_total, forma_pagamento, cliente_id, cliente:clientes(nome)', { count: 'exact' })
+                        .gte('data_venda', seisMesesAtras)
+                        .order('data_venda', { ascending: false })
+                        .order('id')
+                        .range(de, ate),
+                ).then((data) => ({ data, error: null })),
+                lerTudo((de, ate) =>
+                    supabase
+                        .from('itens_venda')
+                        .select(`
+                            id,
+                            venda_id,
+                            produto_id,
+                            quantidade,
+                            valor_unitario,
+                            venda:vendas(data_venda),
+                            produto:produtos(id, descricao, categoria, valor_custo, image_url)
+                        `, { count: 'exact' })
+                        .gte('venda.data_venda', primeiroDiaMesAnterior)
+                        .order('id')
+                        .range(de, ate),
+                ).then((data) => ({ data, error: null })),
+                lerTudo((de, ate) =>
+                    supabase
+                        .from('parcelas_venda')
+                        // saldo_devedor precisa vir no select: com pagamento parcial, somar
+                        // valor_parcela cobraria de novo o que a cliente já pagou.
+                        .select('valor_parcela, saldo_devedor, data_vencimento, pago', { count: 'exact' })
+                        .eq('pago', false)
+                        .order('data_vencimento')
+                        .order('id')
+                        .range(de, ate),
+                ).then((data) => ({ data, error: null })),
                 supabase
                     .from('parcelas_pagar')
                     .select('valor_parcela, data_vencimento, pago')

@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/cache';
 import { formatCurrency } from '../lib/format';
 import { notify } from '../lib/notify';
+import { lerTudo } from '../lib/lerTudo';
 
 interface Product {
     id: string;
@@ -84,14 +85,16 @@ const Inventory: React.FC = () => {
 
     const fetchProducts = async () => {
         try {
-            const { data, error } = await supabase
-                .from('produtos')
-                .select('*')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            setProducts(data || []);
-            cacheSet('inventory_products', data || []);
+            const data = await lerTudo((de, ate) =>
+                supabase
+                    .from('produtos')
+                    .select('*', { count: 'exact' })
+                    .order('created_at', { ascending: false })
+                    .order('id')
+                    .range(de, ate),
+            );
+            setProducts(data);
+            cacheSet('inventory_products', data);
         } catch (error) {
             console.error('Error fetching products:', error);
         } finally {

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { lerTudo } from './lerTudo';
 
 export type ClientTier = 'EXCELENTE' | 'BOM' | 'ATENCAO' | 'CRITICO' | 'NOVO';
 
@@ -168,17 +169,22 @@ export function tierRank(tier: ClientTier): number {
  * returning a map of { [clienteId]: ClientTier }.
  */
 export async function fetchClientTierMap(): Promise<Record<string, ClientTier>> {
-    const { data, error } = await supabase
-        .from('parcelas_venda')
-        .select('pago, data_vencimento, data_pagamento, valor_parcela, saldo_devedor, venda:vendas(cliente_id)');
-
-    if (error) {
+    let data: unknown[];
+    try {
+        data = await lerTudo((de, ate) =>
+            supabase
+                .from('parcelas_venda')
+                .select('pago, data_vencimento, data_pagamento, valor_parcela, saldo_devedor, venda:vendas(cliente_id)', { count: 'exact' })
+                .order('id')
+                .range(de, ate),
+        );
+    } catch (error) {
         console.error('Error fetching parcelas for tier classification:', error);
         return {};
     }
 
     const byClient: Record<string, ParcelaForTier[]> = {};
-    for (const row of (data || []) as unknown as Array<{
+    for (const row of data as Array<{
         pago: boolean;
         data_vencimento: string;
         data_pagamento: string | null;
